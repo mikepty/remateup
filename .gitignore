@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.env
+*.db
+
+# Docker
+.docker/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data
+backend/data/uploads/
+*.sqlite
+
+# Node
+whatsapp-bridge/node_modules/
+whatsapp-bridge/auth_info/

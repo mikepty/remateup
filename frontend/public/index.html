@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RemateUp — Panel de Control</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚖️</text></svg>">
+<style>
+  :root{--navy:#2d2b55; --navy-dark:#1a1840; --gold:#e8a838; --gray:#6b7280; --green:#059669; --red:#dc2626; --orange:#d97706; --bg:#f8fafc; --border:#e2e8f0; --card:#fff; --text:#1e293b; --text-light:#64748b;}
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{font-family:'Inter','Segoe UI',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); min-height:100vh;}
+
+  /* Header */
+  header{background:linear-gradient(135deg, var(--navy) 0%, var(--navy-dark) 100%); color:#fff; padding:14px 24px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 2px 8px rgba(0,0,0,.15);}
+  header h1{margin:0; font-size:17px; font-weight:700; letter-spacing:-.3px;}
+  header .sub{font-size:11px; opacity:.7; font-weight:400;}
+
+  /* Config bar */
+  .config-bar{background:#fff; border-bottom:1px solid var(--border); padding:8px 24px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
+  .config-bar label{font-size:11px; color:var(--gray);}
+  .config-bar input{padding:5px 10px; border:1px solid var(--border); border-radius:6px; font-size:12px; width:220px;}
+  .config-bar button{padding:5px 12px; border:none; background:var(--navy); color:#fff; border-radius:6px; cursor:pointer; font-size:11px; font-weight:600;}
+  .config-bar .status-dot{width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:4px;}
+  .config-bar .status-dot.ok{background:var(--green);}
+  .config-bar .status-dot.err{background:var(--red);}
+
+  /* Container */
+  .container{max-width:860px; margin:0 auto; padding:16px;}
+
+  /* Metrics */
+  .metrics{display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:16px;}
+  .metric{background:var(--card); border:1px solid var(--border); border-radius:10px; padding:12px; text-align:center;}
+  .metric .val{font-size:22px; font-weight:700; color:var(--navy);}
+  .metric .lbl{font-size:9px; color:var(--text-light); margin-top:2px; text-transform:uppercase; letter-spacing:.5px;}
+
+  /* Card */
+  .card{background:var(--card); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:14px;}
+  .card-title{font-size:13px; font-weight:700; color:var(--navy); margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;}
+  .card-title .count{font-size:11px; color:var(--gray); font-weight:400;}
+
+  /* Upload section */
+  .upload-section{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;}
+  .upload-section .full{grid-column:1/-1;}
+  .upload-section label{font-size:10px; color:var(--gray); display:block; margin-bottom:3px; text-transform:uppercase; letter-spacing:.3px;}
+  .upload-section select, .upload-section input[type=file]{width:100%; padding:6px 10px; border:1px solid var(--border); border-radius:6px; font-size:12px; background:#fff;}
+  .upload-section input[type=file]{padding:4px;}
+
+  /* Buttons */
+  .btn{padding:7px 16px; border:none; border-radius:6px; font-size:11px; cursor:pointer; font-weight:600; transition:all .15s;}
+  .btn-primary{background:var(--navy); color:#fff;}
+  .btn-success{background:var(--green); color:#fff;}
+  .btn-warning{background:var(--orange); color:#fff;}
+  .btn-danger{background:var(--red); color:#fff;}
+  .btn:hover{opacity:.85; transform:translateY(-1px);}
+  .btn:disabled{opacity:.5; cursor:not-allowed; transform:none;}
+
+  /* Aviso Card - Estilo RemateHoy */
+  .aviso-card{border:1px solid var(--border); border-radius:12px; margin-bottom:12px; overflow:hidden; background:#fff; transition:box-shadow .2s;}
+  .aviso-card:hover{box-shadow:0 4px 12px rgba(0,0,0,.08);}
+  .aviso-header{background:linear-gradient(135deg, var(--navy) 0%, var(--navy-dark) 100%); color:#fff; padding:10px 14px; display:flex; justify-content:space-between; align-items:center;}
+  .aviso-header .codigo{font-weight:700; font-size:13px;}
+  .aviso-header .meta{font-size:10px; opacity:.8; display:flex; align-items:center; gap:6px;}
+  .aviso-body{padding:14px;}
+  .aviso-body .desc{font-size:13px; font-weight:600; color:var(--text); margin-bottom:12px; line-height:1.5;}
+  .aviso-body .valores{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;}
+  .valor-box{text-align:center; padding:8px; background:var(--bg); border-radius:8px;}
+  .valor-box .label{font-size:9px; color:var(--gold); font-weight:600; text-transform:uppercase; margin-bottom:2px;}
+  .valor-box .monto{font-size:14px; font-weight:700; color:var(--navy);}
+  .aviso-footer{padding:8px 14px; display:flex; justify-content:flex-end; gap:6px; border-top:1px solid var(--border); background:var(--bg);}
+
+  /* Detalle expandido */
+  .detalle{padding:14px; border-top:1px solid var(--border); display:none; background:var(--bg);}
+  .detalle.show{display:block;}
+  .detalle-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:10px;}
+  .campo{display:flex; flex-direction:column;}
+  .campo .k{font-size:9px; color:var(--text-light); text-transform:uppercase; letter-spacing:.3px;}
+  .campo .v{font-size:12px; font-weight:600; color:var(--text); margin-top:1px;}
+  .campo-full{grid-column:1/-1; margin-top:8px;}
+  .campo-full .k{font-size:9px; color:var(--text-light); text-transform:uppercase;}
+  .campo-full .v{font-size:12px; font-weight:600; margin-top:2px;}
+
+  /* Badges */
+  .badge{padding:2px 8px; border-radius:12px; font-size:9px; font-weight:700; text-transform:uppercase;}
+  .badge.ok{background:#d1fae5; color:#065f46;}
+  .badge.warn{background:#fef3c7; color:#92400e;}
+  .badge.info{background:#dbeafe; color:#1e40af;}
+  .badge.pending{background:#fee2e2; color:#991b1b;}
+
+  /* Filtros */
+  .filtros{display:flex; gap:6px; margin-bottom:10px;}
+  .filtros button{padding:4px 12px; border:1px solid var(--border); background:#fff; border-radius:16px; font-size:10px; cursor:pointer; font-weight:500;}
+  .filtros button.active{background:var(--navy); color:#fff; border-color:var(--navy);}
+
+  /* Status messages */
+  .status{padding:8px 12px; border-radius:6px; font-size:11px; margin-top:8px;}
+  .status.ok{background:#d1fae5; color:#065f46;}
+  .status.error{background:#fee2e2; color:#991b1b;}
+  .status.loading{background:#f1f5f9; color:var(--gray);}
+
+  /* Empty state */
+  .empty{text-align:center; padding:30px; color:var(--gray); font-size:12px;}
+
+  /* Audit */
+  .audit-item{padding:5px 0; border-bottom:1px solid var(--border); font-size:10px; display:flex; gap:8px; align-items:baseline;}
+  .audit-item .agent{color:var(--navy); font-weight:700; min-width:80px;}
+  .audit-item .action{color:var(--text); flex:1;}
+  .audit-item .time{color:var(--gray); font-size:9px; white-space:nowrap;}
+
+  @media(max-width:640px){
+    .metrics{grid-template-columns:repeat(2,1fr);}
+    .upload-section{grid-template-columns:1fr;}
+    .detalle-grid{grid-template-columns:1fr 1fr;}
+    .aviso-body .valores{grid-template-columns:1fr;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>RemateUp</h1>
+    <span class="sub">Panel de Control — Avisos de Remate Judicial</span>
+  </div>
+  <span id="ultimaActualizacion" style="font-size:10px; opacity:.6;"></span>
+</header>
+
+<div class="config-bar">
+  <span id="statusDot" class="status-dot err"></span>
+  <label>Backend:</label>
+  <input type="text" id="apiUrl" value="http://localhost:8000" placeholder="URL del backend">
+  <button onclick="conectar()">Conectar</button>
+  <span id="conexionStatus" style="font-size:10px; color:var(--gray);"></span>
+</div>
+
+<div class="container">
+
+  <!-- UPLOAD -->
+  <div class="card">
+    <div class="card-title">Subir Documento</div>
+    <div class="upload-section">
+      <div>
+        <label>Pais</label>
+        <select id="uploadPais">
+          <option value="PA">Panama (periodico)</option>
+          <option value="CO">Colombia (PDF)</option>
+        </select>
+      </div>
+      <div>
+        <label>Imagen SUPERIOR / PDF</label>
+        <input type="file" id="uploadPrincipal" accept="image/*,.pdf">
+      </div>
+      <div>
+        <label>Imagen INFERIOR (opcional)</label>
+        <input type="file" id="uploadInferior" accept="image/*">
+      </div>
+      <div style="display:flex; gap:8px; align-items:flex-end;">
+        <button onclick="subirDocumento()" id="btnSubir" class="btn btn-primary">Subir y Procesar</button>
+      </div>
+      <div class="full" style="margin-top:8px;">
+        <label>Multi-pagina (orden: sup1, inf1, sup2, inf2...)</label>
+        <div style="display:flex; gap:8px;">
+          <input type="file" id="uploadLote" accept="image/*" multiple style="flex:1; padding:4px;">
+          <button onclick="subirLote()" class="btn btn-warning">Subir Lote</button>
+        </div>
+      </div>
+    </div>
+    <div id="uploadStatus"></div>
+  </div>
+
+  <!-- METRICS -->
+  <div class="metrics" id="metricas"></div>
+
+  <!-- PENDIENTES -->
+  <div class="card">
+    <div class="card-title">
+      Pendientes de Aprobacion
+      <span class="count" id="countPendientes"></span>
+    </div>
+    <div style="margin-bottom:10px;">
+      <button onclick="simularTodas()" class="btn btn-warning" style="font-size:10px;">Simular Aprobacion Masiva</button>
+      <span style="font-size:9px; color:var(--gray); margin-left:6px;">Aprueba y sube todos automaticamente</span>
+    </div>
+    <div class="filtros" id="filtrosPendientes"></div>
+    <div id="pendientes"></div>
+  </div>
+
+  <!-- HISTORIAL -->
+  <div class="card">
+    <div class="card-title">
+      Historial
+      <span class="count" id="countHistorial"></span>
+    </div>
+    <div class="filtros" id="filtrosHistorial"></div>
+    <div id="historial"></div>
+  </div>
+
+  <!-- AUDITORIA -->
+  <div class="card">
+    <div class="card-title">Auditoria</div>
+    <div id="auditoria" style="max-height:240px; overflow-y:auto;"></div>
+  </div>
+
+</div>
+
+<script>
+let filtroPais = {pendientes:'TODOS', historial:'TODOS'};
+let backendOnline = false;
+
+const $ = id => document.getElementById(id);
+const apiUrl = path => $('apiUrl').value.replace(/\/$/,'') + path;
+
+async function conectar(){
+  const dot = $('statusDot');
+  const msg = $('conexionStatus');
+  dot.className = 'status-dot err';
+  msg.textContent = 'Conectando...';
+  try{
+    const r = await fetch(apiUrl('/'), {signal: AbortSignal.timeout(5000)});
+    const d = await r.json();
+    if(d.status === 'ok'){
+      dot.className = 'status-dot ok';
+      msg.textContent = 'Conectado';
+      backendOnline = true;
+      cargarTodo();
+    }
+  }catch(e){
+    dot.className = 'status-dot err';
+    msg.textContent = 'Sin conexion';
+    backendOnline = false;
+  }
+}
+
+// Helpers
+function flag(p){ return p===1?'🇵🇦':p===2?'🇨🇴':''; }
+function moneda(v){ if(v==null||v==='') return '—'; const n=parseFloat(v); return isNaN(n)?v:'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function iconCat(c){
+  if(!c) return '⚖️';
+  c=c.toUpperCase();
+  if(c.includes('CASA')||c.includes('APART')) return '🏠';
+  if(c.includes('TERRENO')) return '🏗️';
+  if(c.includes('VEHICULO')) return '🚗';
+  return '⚖️';
+}
+function labelBase(p){ return p===1?'Base del remate:':'Avaluo del remate:'; }
+function minimoPart(a){ return a.pais===2?(a.fianza_porcentaje||40)+'%':moneda(a.fianza); }
+function labelLoc(p){ return p===1?'Provincia':'Departamento'; }
+function labelFinca(p){ return p===1?'Folio (Finca)':'Matricula inmobiliaria'; }
+
+// Upload
+async function subirDocumento(){
+  const pais = $('uploadPais').value;
+  const pri = $('uploadPrincipal');
+  const inf = $('uploadInferior');
+  if(!pri.files.length){ showStatus('uploadStatus','error','Selecciona al menos la imagen principal.'); return; }
+  const fd = new FormData();
+  fd.append('archivos', pri.files[0]);
+  if(inf.files.length) fd.append('archivos', inf.files[0]);
+  fd.append('pais', pais);
+  $('btnSubir').disabled = true;
+  showStatus('uploadStatus','loading','Subiendo...');
+  try{
+    const r = await fetch(apiUrl('/documentos/subir'),{method:'POST',body:fd});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d = await r.json();
+    showStatus('uploadStatus','loading','Documento #'+d.documento_id+' procesando...');
+    pri.value=''; inf.value='';
+    monitorear(d.documento_id);
+  }catch(e){ showStatus('uploadStatus','error','Error: '+e.message); }
+  $('btnSubir').disabled = false;
+}
+
+async function subirLote(){
+  const pais = $('uploadPais').value;
+  const inp = $('uploadLote');
+  if(!inp.files.length){ showStatus('uploadStatus','error','Selecciona las imagenes.'); return; }
+  const fd = new FormData();
+  for(let i=0;i<inp.files.length;i++) fd.append('archivos',inp.files[i]);
+  fd.append('pais',pais);
+  showStatus('uploadStatus','loading','Subiendo '+inp.files.length+' archivos...');
+  try{
+    const r = await fetch(apiUrl('/documentos/subir_lote'),{method:'POST',body:fd});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d = await r.json();
+    showStatus('uploadStatus','loading',d.total_paginas+' pagina(s) procesando...');
+    inp.value='';
+  }catch(e){ showStatus('uploadStatus','error','Error: '+e.message); }
+}
+
+async function monitorear(id, intentos=0){
+  if(intentos>60){ showStatus('uploadStatus','loading','Sigue procesando...'); return; }
+  try{
+    const r = await fetch(apiUrl('/documentos/'+id));
+    const d = await r.json();
+    if(d.estado==='completado'){
+      showStatus('uploadStatus','ok','Completado: '+d.avisos.length+' aviso(s) procesado(s).');
+      cargarTodo(); return;
+    }
+    if(d.estado==='error'){ showStatus('uploadStatus','error','Error en procesamiento.'); return; }
+    setTimeout(()=>monitorear(id,intentos+1),5000);
+  }catch(e){ setTimeout(()=>monitorear(id,intentos+1),5000); }
+}
+
+function showStatus(elId,type,msg){
+  $(elId).innerHTML='<div class="status '+type+'">'+msg+'</div>';
+}
+
+// Metrics
+async function cargarMetricas(){
+  try{
+    const r = await fetch(apiUrl('/dashboard/metricas'));
+    const m = await r.json();
+    $('metricas').innerHTML=`
+      <div class="metric"><div class="val">${m.documentos_procesados}</div><div class="lbl">Documentos</div></div>
+      <div class="metric"><div class="val">${m.avisos_totales}</div><div class="lbl">Avisos</div></div>
+      <div class="metric"><div class="val">${m.porcentaje_automatizacion}%</div><div class="lbl">Auto</div></div>
+      <div class="metric"><div class="val">${m.esperando_aprobacion}</div><div class="lbl">Pendientes</div></div>
+    `;
+  }catch(e){}
+}
+
+// Aviso Card
+function cardAviso(a, pendiente){
+  const bEstado = a.estado==='subido'||a.estado==='auto_aprobado'
+    ?'<span class="badge ok">'+a.estado+'</span>'
+    :a.estado==='reemplazado_por_republicacion'
+      ?'<span class="badge info">reemplazado</span>'
+      :'<span class="badge warn">'+a.estado+'</span>';
+
+  let fechaPub='';
+  if(a.fecha){try{const d=new Date(a.fecha+'T00:00:00');fechaPub=d.toLocaleDateString('es-PA',{day:'2-digit',month:'short',year:'2-digit'});}catch(e){fechaPub=a.fecha;}}
+
+  return `
+    <div class="aviso-card">
+      <div class="aviso-header">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span class="codigo">${a.codigo||'#'+a.id}</span>
+          ${bEstado}
+        </div>
+        <div class="meta">${flag(a.pais)} ${fechaPub}</div>
+      </div>
+      <div class="aviso-body">
+        <div class="desc">Descripcion: ${a.descripcion||'Sin descripcion'}</div>
+        <div class="valores">
+          <div class="valor-box">
+            <div class="label">${labelBase(a.pais)}</div>
+            <div class="monto">${moneda(a.base)}</div>
+          </div>
+          <div class="valor-box">
+            <div class="label">Minimo para participar:</div>
+            <div class="monto">${minimoPart(a)}</div>
+          </div>
+          <div class="valor-box">
+            <div class="label">Minimo para ganarte el bien:</div>
+            <div class="monto">${moneda(a.minimo)}</div>
+          </div>
+        </div>
+      </div>
+      <div class="aviso-footer">
+        <button class="btn btn-primary" onclick="toggleDet(${a.id})">Ver</button>
+        ${pendiente?`
+          <button class="btn btn-success" onclick="aprobar(${a.id},true)">Aprobar</button>
+          <button class="btn btn-danger" onclick="aprobar(${a.id},false)">Rechazar</button>
+          <button class="btn btn-warning" onclick="simularUna(${a.id})">Subir</button>
+        `:''}
+      </div>
+      <div class="detalle" id="det-${a.id}">${detalleCard(a)}</div>
+    </div>`;
+}
+
+function detalleCard(a){
+  const falt=(a.campos_faltantes||[]).map(c=>'<span style="background:#fee2e2;color:#991b1b;padding:1px 6px;border-radius:4px;font-size:9px;margin-right:3px;">'+c+'</span>').join('')||'<span style="color:var(--gray)">—</span>';
+  return `
+    <div class="detalle-grid">
+      <div class="campo"><span class="k">Fecha del Remate</span><span class="v">${a.fecha||'—'}</span></div>
+      <div class="campo"><span class="k">Hora del Remate</span><span class="v">${a.hora||'—'}</span></div>
+      <div class="campo"><span class="k">${labelLoc(a.pais)}</span><span class="v">${a.provincia||'—'}</span></div>
+      <div class="campo"><span class="k">Juzgado</span><span class="v">${a.lugar||'—'}</span></div>
+      <div class="campo"><span class="k">Tipo de proceso</span><span class="v">${a.proceso||'—'}</span></div>
+      <div class="campo"><span class="k">Expediente</span><span class="v">${a.expediente||'—'}</span></div>
+    </div>
+    <div class="campo-full"><span class="k">Partes</span><div class="v">Demandante: ${a.demandante||'—'}</div><div class="v">Demandado: ${a.demandado||'—'}</div></div>
+    <div class="campo-full"><span class="k">Descripcion</span><div class="v">${a.descripcion||'—'}</div></div>
+    <div class="detalle-grid" style="margin-top:10px;">
+      <div class="campo"><span class="k">${labelBase(a.pais)}</span><span class="v">${moneda(a.base)}</span></div>
+      <div class="campo"><span class="k">Min. participar</span><span class="v">${minimoPart(a)} ${a.fianza_asumida_por_regla?'<span class="badge info">asumida</span>':''}</span></div>
+      <div class="campo"><span class="k">Min. ganar</span><span class="v">${moneda(a.minimo)}</span></div>
+      <div class="campo"><span class="k">Categoria</span><span class="v">${a.categoria||'—'} ${a.categoria_codigo?'('+a.categoria_codigo+')':''}</span></div>
+      <div class="campo"><span class="k">Lote/Casa</span><span class="v">${a.lote_casa||'—'}</span></div>
+      <div class="campo"><span class="k">${labelFinca(a.pais)}</span><span class="v">${a.finca_matr||'—'}</span></div>
+      <div class="campo"><span class="k">Plano</span><span class="v">${a.plano||'—'}</span></div>
+      <div class="campo"><span class="k">Superficie</span><span class="v">${a.superficie||'—'}</span></div>
+      <div class="campo"><span class="k">Codigo Ubicacion</span><span class="v">${a.codigo_ubicacion??'—'}</span></div>
+    </div>
+    <div style="margin-top:8px;"><span style="font-size:9px;color:var(--gray);text-transform:uppercase;">Campos faltantes</span><div style="margin-top:2px;">${falt}</div></div>
+    ${a.discrepancia_valores?'<div style="margin-top:6px;padding:6px 10px;background:#fef3c7;border-radius:6px;color:#92400e;font-size:10px;">Discrepancia de valores detectada.</div>':''}
+  `;
+}
+
+function toggleDet(id){ const el=$('det-'+id); if(el) el.classList.toggle('show'); }
+
+// Filtros
+function renderFiltros(elId, actual, fn){
+  const el=$(elId);
+  el.innerHTML=[['TODOS','Todos'],[1,'Panama 🇵🇦'],[2,'Colombia 🇨🇴']].map(([v,l])=>
+    '<button class="'+(actual===v?'active':'')+'" onclick="'+fn+'(\''+v+'\')">'+l+'</button>'
+  ).join('');
+}
+
+// Pendientes
+async function cargarPendientes(){
+  try{
+    const r=await fetch(apiUrl('/dashboard/pendientes'));
+    let a=await r.json();
+    renderFiltros('filtrosPendientes',filtroPais.pendientes,'filtrarP');
+    if(filtroPais.pendientes!=='TODOS') a=a.filter(x=>x.pais==filtroPais.pendientes);
+    $('countPendientes').textContent=a.length+' aviso(s)';
+    $('pendientes').innerHTML=a.length?a.map(x=>cardAviso(x,true)).join(''):'<div class="empty">No hay pendientes.</div>';
+  }catch(e){}
+}
+
+// Historial
+async function cargarHistorial(){
+  try{
+    const r=await fetch(apiUrl('/dashboard/historial'));
+    let a=await r.json();
+    renderFiltros('filtrosHistorial',filtroPais.historial,'filtrarH');
+    if(filtroPais.historial!=='TODOS') a=a.filter(x=>x.pais==filtroPais.historial);
+    $('countHistorial').textContent=a.length+' aviso(s)';
+    $('historial').innerHTML=a.length?a.map(x=>cardAviso(x,false)).join(''):'<div class="empty">Sin registros.</div>';
+  }catch(e){}
+}
+
+function filtrarP(v){ filtroPais.pendientes=v; cargarPendientes(); }
+function filtrarH(v){ filtroPais.historial=v; cargarHistorial(); }
+
+// Auditoria
+async function cargarAuditoria(){
+  try{
+    const r=await fetch(apiUrl('/dashboard/auditoria'));
+    const regs=await r.json();
+    $('auditoria').innerHTML=regs.map(r=>
+      '<div class="audit-item"><span class="agent">['+r.agente+']</span><span class="action">'+r.accion+' — '+(r.detalle||'').slice(0,100)+'</span><span class="time">'+new Date(r.creado_en).toLocaleTimeString('es-PA')+'</span></div>'
+    ).join('');
+  }catch(e){}
+}
+
+// Acciones
+async function aprobar(id, ok){
+  await fetch(apiUrl('/aprobaciones/'+id+'/manual?aprobado='+ok),{method:'POST'});
+  cargarTodo();
+}
+async function simularUna(id){
+  await fetch(apiUrl('/aprobaciones/simular_una/'+id),{method:'POST'});
+  cargarTodo();
+}
+async function simularTodas(){
+  if(!confirm('Aprobar y subir TODOS los pendientes?')) return;
+  showStatus('uploadStatus','loading','Simulando...');
+  try{
+    const r=await fetch(apiUrl('/aprobaciones/simular_todas'),{method:'POST'});
+    const d=await r.json();
+    showStatus('uploadStatus','ok',d.aprobados+' aprobados de '+d.total+'.');
+    cargarTodo();
+  }catch(e){ showStatus('uploadStatus','error','Error: '+e.message); }
+}
+
+// Cargar todo
+async function cargarTodo(){
+  if(!backendOnline) return;
+  await Promise.all([cargarMetricas(),cargarPendientes(),cargarHistorial(),cargarAuditoria()]);
+  $('ultimaActualizacion').textContent='Actualizado: '+new Date().toLocaleTimeString('es-PA');
+}
+
+// Init
+conectar();
+setInterval(()=>{ if(backendOnline) cargarTodo(); },15000);
+</script>
+</body>
+</html>

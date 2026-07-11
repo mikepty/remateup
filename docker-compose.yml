@@ -1,0 +1,25 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - WHATSAPP_APROBADOR=${WHATSAPP_APROBADOR}
+      - WHATSAPP_BRIDGE_URL=http://whatsapp-bridge:3001
+      - UMBRAL_CONFIANZA=${UMBRAL_CONFIANZA:-0.85}
+    volumes:
+      - ./backend/data:/app/data
+    depends_on:
+      - whatsapp-bridge
+
+  whatsapp-bridge:
+    build: ./whatsapp-bridge
+    ports:
+      - "3001:3001"
+    environment:
+      - BACKEND_WEBHOOK_URL=http://backend:8000/aprobaciones/webhook
+    volumes:
+      - ./whatsapp-bridge/auth_info:/app/auth_info
+    stdin_open: true
+    tty: true
