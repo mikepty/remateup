@@ -124,11 +124,8 @@
   <span id="ultimaActualizacion" style="font-size:10px; opacity:.6;"></span>
 </header>
 
-<div class="config-bar">
+<div class="config-bar" style="display:none;">
   <span id="statusDot" class="status-dot err"></span>
-  <label>Backend:</label>
-  <input type="text" id="apiUrl" value="http://localhost:8000" placeholder="URL del backend">
-  <button onclick="conectar()">Conectar</button>
   <span id="conexionStatus" style="font-size:10px; color:var(--gray);"></span>
 </div>
 
@@ -207,26 +204,21 @@ let filtroPais = {pendientes:'TODOS', historial:'TODOS'};
 let backendOnline = false;
 
 const $ = id => document.getElementById(id);
-const apiUrl = path => $('apiUrl').value.replace(/\/$/,'') + path;
+const API_BASE = 'https://remateup-backend.onrender.com';
+const apiUrl = path => API_BASE + path;
 
 async function conectar(){
-  const dot = $('statusDot');
-  const msg = $('conexionStatus');
-  dot.className = 'status-dot err';
-  msg.textContent = 'Conectando...';
   try{
-    const r = await fetch(apiUrl('/'), {signal: AbortSignal.timeout(5000)});
+    const r = await fetch(apiUrl('/'), {signal: AbortSignal.timeout(10000)});
     const d = await r.json();
     if(d.status === 'ok'){
-      dot.className = 'status-dot ok';
-      msg.textContent = 'Conectado';
       backendOnline = true;
       cargarTodo();
     }
   }catch(e){
-    dot.className = 'status-dot err';
-    msg.textContent = 'Sin conexion';
     backendOnline = false;
+    // Retry in 5 seconds if backend is sleeping (Render free tier)
+    setTimeout(conectar, 5000);
   }
 }
 
