@@ -203,28 +203,47 @@ def _preparar_contenido(archivo_path: str, client) -> object:
     return types.Part.from_bytes(data=pathlib.Path(archivo_path).read_bytes(), mime_type=mime)
 
 
-def _extraer_una_llamada(archivo_paths: list[str], pais: str = "PA") -> list[dict]:
+def _extraer_una_llamada(archivo_paths: list[str], pais: str = "PA", intento: int = 0) -> list[dict]:
     """
     Hace UNA llamada a Gemini sobre uno o más archivos que representan la
     MISMA unidad de contexto (ej. imagen única, o mitad superior + mitad
     inferior de una misma página de periódico). Devuelve una lista de dicts:
       { "datos": {...campos...}, "confianza": {...campos...} }
     """
+    import time
+
     if not GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY no configurada")
+
+    print(f"[extraction] API key: {GEMINI_API_KEY[:8]}...{GEMINI_API_KEY[-4:]} (longitud: {len(GEMINI_API_KEY)})")
+    print(f"[extraction] Modelo: {GEMINI_MODEL}")
 
     client = genai.Client(api_key=GEMINI_API_KEY)
     contenidos = [_preparar_contenido(p, client) for p in archivo_paths]
     prompt = _construir_prompt(pais, multiples_imagenes=len(archivo_paths) > 1)
 
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=[*contenidos, prompt],
-        config=types.GenerateContentConfig(
-            max_output_tokens=65536,
-            http_options=types.HttpOptions(timeout=300_000),
-        ),
-    )
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=[*contenidos, prompt],
+            config=types.GenerateContentConfig(
+                max_output_tokens=65536,
+                http_options=types.HttpOptions(timeout=300_000),
+            ),
+        )
+    except Exception as e:
+        error_str = str(e).lower()
+        # Si es rate limit o quota exceeded, reintentar con espera
+        if ("429" in error_str or "quota" in error_str or "rate" in error_str or "exceeded" in error_str):
+            if intento < 3:
+                wait_time = 30 * (intento + 1)  # 30s, 60s, 90s
+                print(f"[extraction] Rate limit alcanzado. Reintento {intento+1}/3, esperando {wait_time}s...")
+                time.sleep(wait_time)
+                return _extraer_una_llamada(archivo_paths, pais, intento + 1)
+            else:
+                print(f"[extraction] Rate limit persistente tras 3 reintentos.")
+                raise
+        raise
 
     text = response.text.strip().replace("```json", "").replace("```", "").strip()
     resultado = _parsear_json_con_recuperacion(text)

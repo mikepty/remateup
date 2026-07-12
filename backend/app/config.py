@@ -7,7 +7,7 @@ load_dotenv(BASE_DIR / ".env")  # carga variables desde backend/.env si existe
 
 # --- IA ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_MODEL = "gemini-2.5-flash"
 
 # --- Base de datos ---
 DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{BASE_DIR}/data/remateup.db")
