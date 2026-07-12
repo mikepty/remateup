@@ -119,7 +119,13 @@ CONTEXTO PA Panamá -- sección "BUSCAFÁCIL" / judicial de un periódico paname
 - "provincia": la PROVINCIA de Panamá donde está el bien (Bocas del Toro,
   Coclé, Colón, Chiriquí, Darién, Herrera, Los Santos, Panamá, Panamá Oeste,
   Veraguas). A veces viene en la dirección del inmueble.
-- "descripcion": la descripción del bien (dirección, metros, lote, etc.).
+- "descripcion": RESUMEN corto del bien como aparece en la app RemateHoy.
+  Formato: "[Superficie], [Tipo propiedad], CORR: [Corregimiento], DIST: [Distrito], [Provincia]."
+  Ejemplos:
+  - "19 HEC 4926.62 M2, CORREGIMIENTO Y DISTRITO, GUALACA, CHIRIQUI."
+  - "332 M2, PH PRINCESA Y CONDESA DEL MAR, CORR: BELLA VISTA, DIST: PANAMA."
+  - "271.61 M2, LAGO EMPERADOR, CORR: JUAN DEMOSTENES AROSEMENA, DIST: ARRAIJAN."
+  NO copies el texto completo del periódico -- resume en 1-2 líneas con los datos clave.
 - "finca_matr": el número de FOLIO REAL / FINCA si aparece.
 - "base": el monto del avalúo o valor base (ej. "$395,000.00" -> 395000.00).
 - "fianza_porcentaje": el porcentaje de fianza (10, 20 o 25).

@@ -402,11 +402,17 @@ function detalleCard(a){
 function toggleDet(id){ const el=$('det-'+id); if(el) el.classList.toggle('show'); }
 
 // Filtros
-function renderFiltros(elId, actual, fn){
+function renderFiltros(elId, actual, fn, extra){
   const el=$(elId);
-  el.innerHTML=[['TODOS','Todos'],[1,'Panama 🇵🇦'],[2,'Colombia 🇨🇴']].map(([v,l])=>
-    '<button class="'+(actual===v?'active':'')+'" onclick="'+fn+'(\''+v+'\')">'+l+'</button>'
-  ).join('');
+  let btns=[['TODOS','Todos'],[1,'Panama'],[2,'Colombia']];
+  if(extra){
+    btns.push(['divider','|']);
+    btns.push(['subido','Subidos'],['esperando_aprobacion','Pendientes'],['auto_aprobado','Auto']);
+  }
+  el.innerHTML=btns.map(([v,l])=>{
+    if(v==='divider') return '<span style="color:var(--border)">|</span>';
+    return '<button class="'+(actual===v?'active':'')+'" onclick="'+fn+'(\''+v+'\')">'+l+'</button>';
+  }).join('');
 }
 
 // Pendientes
@@ -414,20 +420,26 @@ async function cargarPendientes(){
   try{
     const r=await fetch(apiUrl('/dashboard/pendientes'));
     let a=await r.json();
-    renderFiltros('filtrosPendientes',filtroPais.pendientes,'filtrarP');
+    renderFiltros('filtrosPendientes',filtroPais.pendientes,'filtrarP',false);
     if(filtroPais.pendientes!=='TODOS') a=a.filter(x=>x.pais==filtroPais.pendientes);
     $('countPendientes').textContent=a.length+' aviso(s)';
     $('pendientes').innerHTML=a.length?a.map(x=>cardAviso(x,true)).join(''):'<div class="empty">No hay pendientes.</div>';
   }catch(e){}
 }
 
-// Historial
+// Historial - usa /todos para obtener todos los avisos
 async function cargarHistorial(){
   try{
-    const r=await fetch(apiUrl('/dashboard/historial'));
+    const r=await fetch(apiUrl('/dashboard/todos'));
     let a=await r.json();
-    renderFiltros('filtrosHistorial',filtroPais.historial,'filtrarH');
-    if(filtroPais.historial!=='TODOS') a=a.filter(x=>x.pais==filtroPais.historial);
+    renderFiltros('filtrosHistorial',filtroPais.historial,'filtrarH',true);
+    if(filtroPais.historial!=='TODOS'){
+      if(['subido','esperando_aprobacion','auto_aprobado'].includes(filtroPais.historial)){
+        a=a.filter(x=>x.estado===filtroPais.historial);
+      }else{
+        a=a.filter(x=>x.pais==filtroPais.historial);
+      }
+    }
     $('countHistorial').textContent=a.length+' aviso(s)';
     $('historial').innerHTML=a.length?a.map(x=>cardAviso(x,false)).join(''):'<div class="empty">Sin registros.</div>';
   }catch(e){}

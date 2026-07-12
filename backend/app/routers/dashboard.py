@@ -1,5 +1,5 @@
 import json
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from ..database import get_db
@@ -9,19 +9,51 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
 @router.get("/pendientes")
-def avisos_pendientes(db: Session = Depends(get_db)):
-    avisos = db.query(Aviso).filter(Aviso.estado == "esperando_aprobacion").all()
+def avisos_pendientes(
+    pais: int = Query(None, description="1=PA, 2=CO"),
+    db: Session = Depends(get_db)
+):
+    query = db.query(Aviso).filter(Aviso.estado == "esperando_aprobacion")
+    if pais:
+        query = query.filter(Aviso.pais == pais)
+    avisos = query.order_by(Aviso.creado_en.desc()).all()
     return [_serializar_aviso(a) for a in avisos]
 
 
 @router.get("/historial")
-def historial(limit: int = 50, db: Session = Depends(get_db)):
-    avisos = db.query(Aviso).order_by(Aviso.creado_en.desc()).limit(limit).all()
+def historial(
+    limit: int = 200,
+    pais: int = Query(None, description="1=PA, 2=CO"),
+    estado: str = Query(None, description="subido, auto_aprobado, etc."),
+    db: Session = Depends(get_db)
+):
+    query = db.query(Aviso)
+    if pais:
+        query = query.filter(Aviso.pais == pais)
+    if estado:
+        query = query.filter(Aviso.estado == estado)
+    avisos = query.order_by(Aviso.creado_en.desc()).limit(limit).all()
+    return [_serializar_aviso(a) for a in avisos]
+
+
+@router.get("/todos")
+def todos_avisos(
+    pais: int = Query(None, description="1=PA, 2=CO"),
+    estado: str = Query(None, description="subido, auto_aprobado, etc."),
+    db: Session = Depends(get_db)
+):
+    """Devuelve TODOS los avisos sin limite."""
+    query = db.query(Aviso)
+    if pais:
+        query = query.filter(Aviso.pais == pais)
+    if estado:
+        query = query.filter(Aviso.estado == estado)
+    avisos = query.order_by(Aviso.creado_en.desc()).all()
     return [_serializar_aviso(a) for a in avisos]
 
 
 @router.get("/auditoria")
-def auditoria(limit: int = 100, db: Session = Depends(get_db)):
+def auditoria(limit: int = 200, db: Session = Depends(get_db)):
     registros = db.query(Auditoria).order_by(Auditoria.creado_en.desc()).limit(limit).all()
     return [{
         "id": r.id, "agente": r.agente, "accion": r.accion, "detalle": r.detalle,
@@ -41,6 +73,10 @@ def metricas(db: Session = Depends(get_db)):
         Aviso.tipo_validacion == "republicacion_legal").scalar()
     confianza_promedio = db.query(func.avg(Aviso.confianza_promedio)).scalar() or 0
 
+    # Contar por pais
+    pa = db.query(func.count(Aviso.id)).filter(Aviso.pais == 1).scalar()
+    co = db.query(func.count(Aviso.id)).filter(Aviso.pais == 2).scalar()
+
     return {
         "documentos_procesados": total_docs,
         "avisos_totales": total_avisos,
@@ -50,6 +86,8 @@ def metricas(db: Session = Depends(get_db)):
         "republicaciones_legales": republicaciones,
         "confianza_promedio_global": round(confianza_promedio, 3),
         "porcentaje_automatizacion": round((auto_aprobados / total_avisos * 100), 1) if total_avisos else 0,
+        "panama": pa,
+        "colombia": co,
     }
 
 
