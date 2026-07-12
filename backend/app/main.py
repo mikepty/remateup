@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import Base, engine
-from .routers import documents, dashboard, approvals
+from .routers import documents, dashboard, approvals, exports
 
 Base.metadata.create_all(bind=engine)
 
@@ -21,6 +21,7 @@ app.add_middleware(
 app.include_router(documents.router)
 app.include_router(dashboard.router)
 app.include_router(approvals.router)
+app.include_router(exports.router)
 
 
 @app.get("/")
