@@ -187,28 +187,25 @@
       Historial
       <span class="count" id="countHistorial"></span>
     </div>
-    <!-- Filtros -->
-    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:center;">
-      <select id="filtroPais" onchange="cargarHistorial()" style="padding:4px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px;">
+    <!-- Filtros independientes -->
+    <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; align-items:center;">
+      <select id="filtroPais" onchange="cargarHistorial()" style="padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px;">
         <option value="">Todos los paises</option>
         <option value="1">Panama</option>
         <option value="2">Colombia</option>
       </select>
-      <select id="filtroEstado" onchange="cargarHistorial()" style="padding:4px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px;">
+      <select id="filtroEstado" onchange="cargarHistorial()" style="padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px;">
         <option value="">Todos los estados</option>
         <option value="subido">Subidos</option>
         <option value="auto_aprobado">Auto-aprobados</option>
         <option value="esperando_aprobacion">Pendientes</option>
         <option value="reemplazado_por_republicacion">Reemplazados</option>
       </select>
-      <input type="date" id="filtroFechaDesde" onchange="cargarHistorial()" style="padding:4px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px;">
-      <span style="font-size:10px; color:var(--gray);">hasta</span>
-      <input type="date" id="filtroFechaHasta" onchange="cargarHistorial()" style="padding:4px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px;">
-      <input type="text" id="filtroBuscar" placeholder="Buscar..." onkeyup="debounceBuscar()" style="padding:4px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px; width:150px;">
+      <input type="text" id="filtroBuscar" placeholder="Buscar..." onkeyup="debounceBuscar()" style="padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px; width:180px;">
     </div>
     <div id="historial"></div>
     <!-- Paginacion -->
-    <div id="paginacion" style="display:flex; justify-content:center; gap:6px; margin-top:12px;"></div>
+    <div id="paginacion" style="display:flex; justify-content:center; gap:4px; margin-top:12px; flex-wrap:wrap;"></div>
   </div>
 
   <!-- EXPORTAR -->
@@ -234,6 +231,7 @@
 let filtroPais = {pendientes:'TODOS', historial:'TODOS'};
 let backendOnline = false;
 let debounceTimer = null;
+let todosLosAvisos = [];
 
 const $ = id => document.getElementById(id);
 const API_BASE = 'https://remateup-backend.onrender.com';
@@ -406,7 +404,7 @@ function detalleCard(a){
       <div class="campo"><span class="k">Expediente</span><span class="v">${a.expediente||'—'}</span></div>
     </div>
     <div class="campo-full"><span class="k">Partes</span><div class="v">Demandante: ${a.demandante||'—'}</div><div class="v">Demandado: ${a.demandado||'—'}</div></div>
-    <div class="campo-full"><span class="k">Descripcion completa</span><div class="v">${a.descripcion_completa||a.descripcion||'—'}</div></div>
+    <div class="campo-full"><span class="k">Descripcion</span><div class="v">${a.descripcion||'—'}</div></div>
     <div class="detalle-grid" style="margin-top:10px;">
       <div class="campo"><span class="k">${labelBase(a.pais)}</span><span class="v">${moneda(a.base)}</span></div>
       <div class="campo"><span class="k">Min. participar</span><span class="v">${minimoPart(a)} ${a.fianza_asumida_por_regla?'<span class="badge info">asumida</span>':''}</span></div>
@@ -454,64 +452,44 @@ async function cargarPendientes(){
   }catch(e){}
 }
 
-// Historial con filtros independientes y paginacion
-async function cargarHistorial(page=1){
+// Historial con filtros independientes
+async function cargarHistorial(){
   try{
-    const params = new URLSearchParams();
     const pais = $('filtroPais').value;
     const estado = $('filtroEstado').value;
-    const fechaDesde = $('filtroFechaDesde').value;
-    const fechaHasta = $('filtroFechaHasta').value;
-    const buscar = $('filtroBuscar').value;
+    const buscar = ($('filtroBuscar').value || '').toLowerCase();
 
-    if(pais) params.set('pais', pais);
-    if(estado) params.set('estado', estado);
-    if(fechaDesde) params.set('fecha_desde', fechaDesde);
-    if(fechaHasta) params.set('fecha_hasta', fechaHasta);
-    if(buscar) params.set('q', buscar);
-    params.set('page', page);
-    params.set('page_size', 25);
-
-    const r=await fetch(apiUrl('/dashboard/avisos?'+params.toString()));
-    const data=await r.json();
-    const a = data.items || [];
-
-    paginaActual = data.page || 1;
-    totalPaginas = data.total_pages || 1;
-
-    $('countHistorial').textContent=data.total+' aviso(s)';
-    $('historial').innerHTML=a.length?a.map(x=>cardAviso(x,false)).join(''):'<div class="empty">Sin registros.</div>';
-
-    // Renderizar paginacion
-    renderPaginacion();
-  }catch(e){}
-}
-
-function renderPaginacion(){
-  const el = $('paginacion');
-  if(totalPaginas <= 1){ el.innerHTML=''; return; }
-
-  let html = '';
-  if(paginaActual > 1) html += `<button class="btn btn-primary" style="padding:4px 10px;" onclick="cargarHistorial(${paginaActual-1})">Anterior</button>`;
-
-  for(let i=1; i<=totalPaginas; i++){
-    if(i===1 || i===totalPaginas || (i>=paginaActual-2 && i<=paginaActual+2)){
-      html += `<button class="btn ${i===paginaActual?'btn-warning':'btn-primary'}" style="padding:4px 10px;" onclick="cargarHistorial(${i})">${i}</button>`;
-    }else if(i===paginaActual-3 || i===paginaActual+3){
-      html += '<span style="color:var(--gray);">...</span>';
+    // Cargar todos los avisos una vez
+    if(todosLosAvisos.length === 0){
+      const r=await fetch(apiUrl('/dashboard/todos'));
+      todosLosAvisos = await r.json();
     }
-  }
 
-  if(paginaActual < totalPaginas) html += `<button class="btn btn-primary" style="padding:4px 10px;" onclick="cargarHistorial(${paginaActual+1})">Siguiente</button>`;
+    // Aplicar filtros localmente
+    let filtrados = [...todosLosAvisos];
+    if(pais) filtrados = filtrados.filter(x=>x.pais==pais);
+    if(estado) filtrados = filtrados.filter(x=>x.estado===estado);
+    if(buscar){
+      filtrados = filtrados.filter(x=>
+        (x.descripcion||'').toLowerCase().includes(buscar) ||
+        (x.expediente||'').toLowerCase().includes(buscar) ||
+        (x.demandante||'').toLowerCase().includes(buscar) ||
+        (x.demandado||'').toLowerCase().includes(buscar) ||
+        (x.codigo||'').toLowerCase().includes(buscar)
+      );
+    }
 
-  el.innerHTML = html;
+    $('countHistorial').textContent=filtrados.length+' aviso(s) de '+todosLosAvisos.length;
+    $('historial').innerHTML=filtrados.length?filtrados.slice(0,50).map(x=>cardAviso(x,false)).join(''):'<div class="empty">Sin registros.</div>';
+    $('paginacion').innerHTML=filtrados.length>50?`<span style="color:var(--gray);font-size:11px;">Mostrando 50 de ${filtrados.length}. Usa los filtros para reducir.</span>`:'';
+  }catch(e){}
 }
 
 function filtrarP(v){ filtroPais.pendientes=v; cargarPendientes(); }
 
 function debounceBuscar(){
   clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(()=>cargarHistorial(1), 300);
+  debounceTimer = setTimeout(()=>cargarHistorial(), 300);
 }
 
 // Auditoria

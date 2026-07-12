@@ -155,7 +155,6 @@ def _serializar_aviso(a: Aviso) -> dict:
         "fecha": a.fecha, "hora": a.hora,
         "lugar": a.lugar, "proceso": a.proceso,
         "descripcion": a.descripcion,
-        "descripcion_completa": getattr(a, 'descripcion_completa', None) or a.descripcion,
         "finca_matr": a.finca_matr,
         "lote_casa": a.lote_casa, "plano": a.plano, "superficie": a.superficie,
         "categoria": a.categoria, "categoria_codigo": a.categoria_codigo,

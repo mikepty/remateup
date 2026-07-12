@@ -12,7 +12,7 @@ from . import pdf_utils
 
 CAMPOS = [
     "pais", "codigo", "fecha", "hora", "proceso", "expediente", "lugar", "categoria",
-    "demandante", "demandado", "lote_casa", "descripcion", "descripcion_completa",
+    "demandante", "demandado", "lote_casa", "descripcion",
     "superficie", "finca_matr", "codigo_ubicacion", "provincia", "plano", "base",
     "fianza_porcentaje", "minimo_porcentaje", "fianza", "minimo", "codigo_fuente",
 ]
