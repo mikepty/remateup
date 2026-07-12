@@ -12,8 +12,8 @@ from . import pdf_utils
 
 CAMPOS = [
     "pais", "codigo", "fecha", "hora", "proceso", "expediente", "lugar", "categoria",
-    "demandante", "demandado", "lote_casa", "descripcion", "superficie", "finca_matr",
-    "codigo_ubicacion", "provincia", "plano", "base",
+    "demandante", "demandado", "lote_casa", "descripcion", "descripcion_completa",
+    "superficie", "finca_matr", "codigo_ubicacion", "provincia", "plano", "base",
     "fianza_porcentaje", "minimo_porcentaje", "fianza", "minimo", "codigo_fuente",
 ]
 
@@ -65,6 +65,10 @@ Reglas de formato:
   calculado (no el porcentaje) además del porcentaje. Si el aviso solo da el
   porcentaje y no un monto en dinero, deja "fianza" y "minimo" en null --
   nuestro sistema los calcula automáticamente desde base + porcentaje.
+- "descripcion_completa": la DESCRIPCIÓN COMPLETA del bien tal como aparece
+  en el documento (dirección detallada, metros, referencias, todo el texto).
+- "descripcion": RESUMEN corto (1-2 líneas) con los datos clave para la
+  tarjeta. Formato: "[Superficie], [Tipo], [Dirección resumida], [Ubicación]."
 - "codigo_fuente": si ves visible en la imagen algún código de identificación
   de la publicación, edición o página del periódico, inclúyelo aquí. Si no es
   visible, usa null (no es un campo crítico, se puede completar manualmente).

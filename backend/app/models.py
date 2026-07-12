@@ -41,7 +41,8 @@ class Aviso(Base):
     demandante = Column(String)
     demandado = Column(String)
     lote_casa = Column(String)
-    descripcion = Column(Text)
+    descripcion = Column(Text)  # resumen corto para el card
+    descripcion_completa = Column(Text)  # descripcion completa para el detalle
     superficie = Column(String)
     finca_matr = Column(String)
     codigo_ubicacion = Column(String)

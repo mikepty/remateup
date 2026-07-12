@@ -28,10 +28,10 @@
   .container{max-width:860px; margin:0 auto; padding:16px;}
 
   /* Metrics */
-  .metrics{display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:16px;}
-  .metric{background:var(--card); border:1px solid var(--border); border-radius:10px; padding:12px; text-align:center;}
-  .metric .val{font-size:22px; font-weight:700; color:var(--navy);}
-  .metric .lbl{font-size:9px; color:var(--text-light); margin-top:2px; text-transform:uppercase; letter-spacing:.5px;}
+  .metrics{display:grid; grid-template-columns:repeat(auto-fit,minmax(100px,1fr)); gap:8px; margin-bottom:16px;}
+  .metric{background:var(--card); border:1px solid var(--border); border-radius:10px; padding:10px; text-align:center;}
+  .metric .val{font-size:20px; font-weight:700; color:var(--navy);}
+  .metric .lbl{font-size:8px; color:var(--text-light); margin-top:2px; text-transform:uppercase; letter-spacing:.5px;}
 
   /* Card */
   .card{background:var(--card); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:14px;}
@@ -187,8 +187,28 @@
       Historial
       <span class="count" id="countHistorial"></span>
     </div>
-    <div class="filtros" id="filtrosHistorial"></div>
+    <!-- Filtros -->
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:center;">
+      <select id="filtroPais" onchange="cargarHistorial()" style="padding:4px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px;">
+        <option value="">Todos los paises</option>
+        <option value="1">Panama</option>
+        <option value="2">Colombia</option>
+      </select>
+      <select id="filtroEstado" onchange="cargarHistorial()" style="padding:4px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px;">
+        <option value="">Todos los estados</option>
+        <option value="subido">Subidos</option>
+        <option value="auto_aprobado">Auto-aprobados</option>
+        <option value="esperando_aprobacion">Pendientes</option>
+        <option value="reemplazado_por_republicacion">Reemplazados</option>
+      </select>
+      <input type="date" id="filtroFechaDesde" onchange="cargarHistorial()" style="padding:4px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px;">
+      <span style="font-size:10px; color:var(--gray);">hasta</span>
+      <input type="date" id="filtroFechaHasta" onchange="cargarHistorial()" style="padding:4px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px;">
+      <input type="text" id="filtroBuscar" placeholder="Buscar..." onkeyup="debounceBuscar()" style="padding:4px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px; width:150px;">
+    </div>
     <div id="historial"></div>
+    <!-- Paginacion -->
+    <div id="paginacion" style="display:flex; justify-content:center; gap:6px; margin-top:12px;"></div>
   </div>
 
   <!-- EXPORTAR -->
@@ -213,6 +233,7 @@
 <script>
 let filtroPais = {pendientes:'TODOS', historial:'TODOS'};
 let backendOnline = false;
+let debounceTimer = null;
 
 const $ = id => document.getElementById(id);
 const API_BASE = 'https://remateup-backend.onrender.com';
@@ -313,10 +334,13 @@ async function cargarMetricas(){
     const r = await fetch(apiUrl('/dashboard/metricas'));
     const m = await r.json();
     $('metricas').innerHTML=`
-      <div class="metric"><div class="val">${m.documentos_procesados}</div><div class="lbl">Documentos</div></div>
-      <div class="metric"><div class="val">${m.avisos_totales}</div><div class="lbl">Avisos</div></div>
-      <div class="metric"><div class="val">${m.porcentaje_automatizacion}%</div><div class="lbl">Auto</div></div>
+      <div class="metric"><div class="val">${m.avisos_totales}</div><div class="lbl">Total Avisos</div></div>
+      <div class="metric"><div class="val">${m.panama||0}</div><div class="lbl">Panama</div></div>
+      <div class="metric"><div class="val">${m.colombia||0}</div><div class="lbl">Colombia</div></div>
+      <div class="metric"><div class="val">${m.subidos||m.auto_aprobados||0}</div><div class="lbl">Subidos</div></div>
       <div class="metric"><div class="val">${m.esperando_aprobacion}</div><div class="lbl">Pendientes</div></div>
+      <div class="metric"><div class="val">${m.reemplazados||0}</div><div class="lbl">Reemplazados</div></div>
+      <div class="metric"><div class="val">${m.porcentaje_automatizacion}%</div><div class="lbl">Automatizacion</div></div>
     `;
   }catch(e){}
 }
@@ -382,7 +406,7 @@ function detalleCard(a){
       <div class="campo"><span class="k">Expediente</span><span class="v">${a.expediente||'—'}</span></div>
     </div>
     <div class="campo-full"><span class="k">Partes</span><div class="v">Demandante: ${a.demandante||'—'}</div><div class="v">Demandado: ${a.demandado||'—'}</div></div>
-    <div class="campo-full"><span class="k">Descripcion</span><div class="v">${a.descripcion||'—'}</div></div>
+    <div class="campo-full"><span class="k">Descripcion completa</span><div class="v">${a.descripcion_completa||a.descripcion||'—'}</div></div>
     <div class="detalle-grid" style="margin-top:10px;">
       <div class="campo"><span class="k">${labelBase(a.pais)}</span><span class="v">${moneda(a.base)}</span></div>
       <div class="campo"><span class="k">Min. participar</span><span class="v">${minimoPart(a)} ${a.fianza_asumida_por_regla?'<span class="badge info">asumida</span>':''}</span></div>
@@ -402,6 +426,9 @@ function detalleCard(a){
 function toggleDet(id){ const el=$('det-'+id); if(el) el.classList.toggle('show'); }
 
 // Filtros
+let paginaActual = 1;
+let totalPaginas = 1;
+
 function renderFiltros(elId, actual, fn, extra){
   const el=$(elId);
   let btns=[['TODOS','Todos'],[1,'Panama'],[2,'Colombia']];
@@ -427,26 +454,65 @@ async function cargarPendientes(){
   }catch(e){}
 }
 
-// Historial - usa /todos para obtener todos los avisos
-async function cargarHistorial(){
+// Historial con filtros independientes y paginacion
+async function cargarHistorial(page=1){
   try{
-    const r=await fetch(apiUrl('/dashboard/todos'));
-    let a=await r.json();
-    renderFiltros('filtrosHistorial',filtroPais.historial,'filtrarH',true);
-    if(filtroPais.historial!=='TODOS'){
-      if(['subido','esperando_aprobacion','auto_aprobado'].includes(filtroPais.historial)){
-        a=a.filter(x=>x.estado===filtroPais.historial);
-      }else{
-        a=a.filter(x=>x.pais==filtroPais.historial);
-      }
-    }
-    $('countHistorial').textContent=a.length+' aviso(s)';
+    const params = new URLSearchParams();
+    const pais = $('filtroPais').value;
+    const estado = $('filtroEstado').value;
+    const fechaDesde = $('filtroFechaDesde').value;
+    const fechaHasta = $('filtroFechaHasta').value;
+    const buscar = $('filtroBuscar').value;
+
+    if(pais) params.set('pais', pais);
+    if(estado) params.set('estado', estado);
+    if(fechaDesde) params.set('fecha_desde', fechaDesde);
+    if(fechaHasta) params.set('fecha_hasta', fechaHasta);
+    if(buscar) params.set('q', buscar);
+    params.set('page', page);
+    params.set('page_size', 25);
+
+    const r=await fetch(apiUrl('/dashboard/avisos?'+params.toString()));
+    const data=await r.json();
+    const a = data.items || [];
+
+    paginaActual = data.page || 1;
+    totalPaginas = data.total_pages || 1;
+
+    $('countHistorial').textContent=data.total+' aviso(s)';
     $('historial').innerHTML=a.length?a.map(x=>cardAviso(x,false)).join(''):'<div class="empty">Sin registros.</div>';
+
+    // Renderizar paginacion
+    renderPaginacion();
   }catch(e){}
 }
 
+function renderPaginacion(){
+  const el = $('paginacion');
+  if(totalPaginas <= 1){ el.innerHTML=''; return; }
+
+  let html = '';
+  if(paginaActual > 1) html += `<button class="btn btn-primary" style="padding:4px 10px;" onclick="cargarHistorial(${paginaActual-1})">Anterior</button>`;
+
+  for(let i=1; i<=totalPaginas; i++){
+    if(i===1 || i===totalPaginas || (i>=paginaActual-2 && i<=paginaActual+2)){
+      html += `<button class="btn ${i===paginaActual?'btn-warning':'btn-primary'}" style="padding:4px 10px;" onclick="cargarHistorial(${i})">${i}</button>`;
+    }else if(i===paginaActual-3 || i===paginaActual+3){
+      html += '<span style="color:var(--gray);">...</span>';
+    }
+  }
+
+  if(paginaActual < totalPaginas) html += `<button class="btn btn-primary" style="padding:4px 10px;" onclick="cargarHistorial(${paginaActual+1})">Siguiente</button>`;
+
+  el.innerHTML = html;
+}
+
 function filtrarP(v){ filtroPais.pendientes=v; cargarPendientes(); }
-function filtrarH(v){ filtroPais.historial=v; cargarHistorial(); }
+
+function debounceBuscar(){
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(()=>cargarHistorial(1), 300);
+}
 
 // Auditoria
 async function cargarAuditoria(){

@@ -57,9 +57,13 @@ def procesar_documento(db: Session, documento: Documento) -> list[Aviso]:
                                  f"Aviso #{anterior.id} reemplazado por una publicación más nueva del mismo bien.",
                                  aviso_id=anterior.id, documento_id=documento.id)
 
+        # Guardar descripcion completa antes de resumir
+        desc_completa = datos.get("descripcion_completa") or datos.get("descripcion", "")
+
         aviso = Aviso(
             documento_id=documento.id,
             **{k: v for k, v in datos.items() if not k.startswith("_") and hasattr(Aviso, k)},
+            descripcion_completa=desc_completa,
             confianza_promedio=decision["confianza_promedio"],
             campos_confianza_json=json.dumps(confianza_campos),
             campos_faltantes_json=json.dumps(faltantes),
