@@ -50,45 +50,63 @@ def evaluar_duplicado_o_republicacion(db, datos: dict) -> dict:
     Devuelve uno de:
       {"tipo": "nuevo"}
       {"tipo": "republicacion_legal", "aviso_a_reemplazar_id": int}
-          -> hay una ocurrencia anterior del mismo bien, dentro de la ventana
-             legal, con los mismos valores -- esta nueva ocurrencia la
-             reemplaza como versión vigente (el cliente pidió quedarse con
-             la última).
       {"tipo": "duplicado_sospechoso", "detalle": str}
-          -> mismo bien pero datos inconsistentes entre publicaciones
-             (ej. valor base distinto) -- requiere revisión humana.
     """
-    if not datos.get("expediente"):
-        return {"tipo": "nuevo"}
+    # Identificador unico del bien: finca_matr + fecha + base
+    finca = _normalizar(datos.get("finca_matr"))
+    fecha = _normalizar(datos.get("fecha"))
+    base = _normalizar(str(datos.get("base", "")))
 
-    identificador = _identificador_bien(datos)
-    candidatos = db.query(Aviso).filter(Aviso.expediente == datos.get("expediente")).all()
+    # Si no tiene finca, usar expediente + base
+    if not finca:
+        expediente = _normalizar(datos.get("expediente"))
+        if not expediente:
+            return {"tipo": "nuevo"}
+        identificador_bien = f"{expediente}::{base}"
+    else:
+        identificador_bien = f"{finca}::{base}"
+
+    # Buscar avisos existentes con la misma finca y base
+    candidatos = db.query(Aviso).filter(
+        Aviso.finca_matr == datos.get("finca_matr"),
+        Aviso.base == datos.get("base")
+    ).all() if finca else []
+
+    # Si no hay finca, buscar por expediente
+    if not candidatos and not finca:
+        candidatos = db.query(Aviso).filter(
+            Aviso.expediente == datos.get("expediente")
+        ).all()
 
     for existente in candidatos:
         if existente.estado == "reemplazado_por_republicacion":
-            continue  # ya fue superado por una republicación más nueva, ignorar
+            continue
 
-        id_existente = _identificador_bien({
-            "expediente": existente.expediente,
-            "lote_casa": existente.lote_casa,
-            "finca_matr": existente.finca_matr,
-            "descripcion": existente.descripcion,
-        })
-        if id_existente != identificador:
-            continue  # bien distinto del mismo expediente -> no es duplicado
+        # Mismo bien (misma finca + mismo base)
+        id_existente_finca = _normalizar(existente.finca_matr)
+        id_existente_base = _normalizar(str(existente.base or ""))
 
-        mismo_valor_base = _normalizar(existente.base) == _normalizar(datos.get("base"))
+        if id_existente_finca == finca and id_existente_base == base:
+            # Mismo bien, misma base -> duplicado real
+            return {
+                "tipo": "duplicado_sospechoso",
+                "detalle": f"Ya existe el aviso #{existente.id} con la misma finca ({finca}) y mismo valor base ({base}). Es el mismo bien.",
+            }
 
-        if mismo_valor_base:
-            # Republicación legal esperada -- esta nueva ocurrencia reemplaza a la anterior.
-            return {"tipo": "republicacion_legal", "aviso_a_reemplazar_id": existente.id}
+        # Mismo expediente -> puede ser republicacion legal
+        if existente.expediente and existente.expediente == datos.get("expediente"):
+            id_existente = _identificador_bien({
+                "expediente": existente.expediente,
+                "lote_casa": existente.lote_casa,
+                "finca_matr": existente.finca_matr,
+                "descripcion": existente.descripcion,
+            })
+            id_nuevo = _identificador_bien(datos)
 
-        return {
-            "tipo": "duplicado_sospechoso",
-            "detalle": f"El bien ya existe (aviso #{existente.id}) pero con un valor base distinto "
-                       f"({existente.base} vs {datos.get('base')}). Podría ser un error de lectura "
-                       f"o un cambio real -- requiere confirmación.",
-        }
+            if id_existente == id_nuevo:
+                mismo_valor_base = _normalizar(existente.base) == _normalizar(datos.get("base"))
+                if mismo_valor_base:
+                    return {"tipo": "republicacion_legal", "aviso_a_reemplazar_id": existente.id}
 
     return {"tipo": "nuevo"}
 

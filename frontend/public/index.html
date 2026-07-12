@@ -354,6 +354,10 @@ function cardAviso(a, pendiente){
   let fechaPub='';
   if(a.fecha){try{const d=new Date(a.fecha+'T00:00:00');fechaPub=d.toLocaleDateString('es-PA',{day:'2-digit',month:'short',year:'2-digit'});}catch(e){fechaPub=a.fecha;}}
 
+  // Resumen: primeras 80 chars de la descripcion
+  const desc = a.descripcion||'Sin descripcion';
+  const descResumen = desc.length > 80 ? desc.substring(0, 80) + '...' : desc;
+
   return `
     <div class="aviso-card">
       <div class="aviso-header">
@@ -364,7 +368,7 @@ function cardAviso(a, pendiente){
         <div class="meta">${flag(a.pais)} ${fechaPub}</div>
       </div>
       <div class="aviso-body">
-        <div class="desc">Descripcion: ${a.descripcion||'Sin descripcion'}</div>
+        <div class="desc">Descripcion: ${descResumen}</div>
         <div class="valores">
           <div class="valor-box">
             <div class="label">${labelBase(a.pais)}</div>
@@ -404,7 +408,7 @@ function detalleCard(a){
       <div class="campo"><span class="k">Expediente</span><span class="v">${a.expediente||'—'}</span></div>
     </div>
     <div class="campo-full"><span class="k">Partes</span><div class="v">Demandante: ${a.demandante||'—'}</div><div class="v">Demandado: ${a.demandado||'—'}</div></div>
-    <div class="campo-full"><span class="k">Descripcion</span><div class="v">${a.descripcion||'—'}</div></div>
+    <div class="campo-full"><span class="k">Descripcion completa</span><div class="v" style="line-height:1.5;">${a.descripcion||'—'}</div></div>
     <div class="detalle-grid" style="margin-top:10px;">
       <div class="campo"><span class="k">${labelBase(a.pais)}</span><span class="v">${moneda(a.base)}</span></div>
       <div class="campo"><span class="k">Min. participar</span><span class="v">${minimoPart(a)} ${a.fianza_asumida_por_regla?'<span class="badge info">asumida</span>':''}</span></div>
@@ -469,6 +473,8 @@ async function cargarHistorial(){
     let filtrados = [...todosLosAvisos];
     if(pais) filtrados = filtrados.filter(x=>x.pais==pais);
     if(estado) filtrados = filtrados.filter(x=>x.estado===estado);
+    // Por defecto, ocultar reemplazados a menos que se pida explícitamente
+    if(!estado) filtrados = filtrados.filter(x=>x.estado!=='reemplazado_por_republicacion');
     if(buscar){
       filtrados = filtrados.filter(x=>
         (x.descripcion||'').toLowerCase().includes(buscar) ||

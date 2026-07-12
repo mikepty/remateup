@@ -69,6 +69,7 @@ Reglas de formato:
   en el documento (dirección detallada, metros, referencias, todo el texto).
 - "descripcion": RESUMEN corto (1-2 líneas) con los datos clave para la
   tarjeta. Formato: "[Superficie], [Tipo], [Dirección resumida], [Ubicación]."
+  Ejemplo: "19 HEC 4926.62 M2, CORREGIMIENTO Y DISTRITO, GUALACA, CHIRIQUI."
 - "codigo_fuente": si ves visible en la imagen algún código de identificación
   de la publicación, edición o página del periódico, inclúyelo aquí. Si no es
   visible, usa null (no es un campo crítico, se puede completar manualmente).
