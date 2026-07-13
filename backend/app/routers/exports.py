@@ -172,9 +172,10 @@ def _workbook_a_stream(wb):
 def exportar_excel(
     pais: str = Query(None, description="PA, CO, o None para todos"),
     estado: str = Query(None, description="subido, auto_aprobado, etc."),
+    ids: str = Query(None, description="IDs separados por coma, ej: 1,2,3"),
     db: Session = Depends(get_db),
 ):
-    """Exporta los avisos a Excel en el formato que usa el cliente."""
+    """Exporta avisos a Excel. Soporta filtros: pais, estado, o IDs especificos."""
     query = db.query(Aviso)
 
     if pais:
@@ -183,6 +184,11 @@ def exportar_excel(
 
     if estado:
         query = query.filter(Aviso.estado == estado)
+
+    if ids:
+        id_list = [int(i.strip()) for i in ids.split(",") if i.strip().isdigit()]
+        if id_list:
+            query = query.filter(Aviso.id.in_(id_list))
 
     avisos = query.order_by(Aviso.id).all()
 

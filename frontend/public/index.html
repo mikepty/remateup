@@ -211,11 +211,13 @@
   <!-- EXPORTAR -->
   <div class="card">
     <div class="card-title">Exportar a Excel</div>
-    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      <button onclick="exportarFiltrados()" class="btn btn-success">Exportar Filtrados</button>
       <button onclick="exportarExcel(null)" class="btn btn-primary">Exportar TODO</button>
       <button onclick="exportarExcel('PA')" class="btn btn-success">Exportar Panama</button>
       <button onclick="exportarExcel('CO')" class="btn btn-warning">Exportar Colombia</button>
     </div>
+    <div style="font-size:9px; color:var(--gray); margin-top:4px;">"Filtrados" exporta lo que se ve en el historial segun los filtros activos</div>
     <div id="exportStatus" style="margin-top:8px;"></div>
   </div>
 
@@ -547,6 +549,58 @@ async function exportarExcel(pais){
     a.click();
     URL.revokeObjectURL(a.href);
     showStatus('exportStatus','ok','Excel descargado: '+filename);
+  }catch(e){
+    showStatus('exportStatus','error','Error: '+e.message);
+  }
+}
+
+// Exportar solo los filtrados del historial
+async function exportarFiltrados(){
+  const pais = $('filtroPais').value;
+  const estado = $('filtroEstado').value;
+  const buscar = ($('filtroBuscar').value || '').toLowerCase();
+
+  // Filtrar localmente los IDs que se ven
+  let ids = [];
+  if(buscar || (!pais && !estado)){
+    // Si hay busqueda, necesitamos filtrar por IDs
+    let filtrados = [...todosLosAvisos];
+    if(pais) filtrados = filtrados.filter(x=>x.pais==pais);
+    if(estado) filtrados = filtrados.filter(x=>x.estado===estado);
+    filtrados = filtrados.filter(x=>x.estado!=='reemplazado_por_republicacion');
+    if(buscar){
+      filtrados = filtrados.filter(x=>
+        (x.descripcion||'').toLowerCase().includes(buscar) ||
+        (x.expediente||'').toLowerCase().includes(buscar) ||
+        (x.demandante||'').toLowerCase().includes(buscar) ||
+        (x.demandado||'').toLowerCase().includes(buscar) ||
+        (x.codigo||'').toLowerCase().includes(buscar)
+      );
+    }
+    ids = filtrados.map(x=>x.id);
+  }
+
+  showStatus('exportStatus','loading','Generando Excel con '+ids.length+' avisos...');
+  try{
+    let url = apiUrl('/exportar/excel?');
+    const params = new URLSearchParams();
+    if(pais) params.set('pais', pais==='1'?'PA':'CO');
+    if(estado) params.set('estado', estado);
+    if(ids.length > 0) params.set('ids', ids.join(','));
+    url += params.toString();
+
+    const r = await fetch(url);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const blob = await r.blob();
+    const disposition = r.headers.get('Content-Disposition') || '';
+    const filenameMatch = disposition.match(/filename=([^;]+)/);
+    const filename = filenameMatch ? filenameMatch[1] : 'export.xlsx';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showStatus('exportStatus','ok','Excel descargado: '+filename+' ('+ids.length+' avisos)');
   }catch(e){
     showStatus('exportStatus','error','Error: '+e.message);
   }
