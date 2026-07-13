@@ -453,8 +453,10 @@ async function cargarPendientes(){
     let a=await r.json();
     renderFiltros('filtrosPendientes',filtroPais.pendientes,'filtrarP',false);
     if(filtroPais.pendientes!=='TODOS') a=a.filter(x=>x.pais==filtroPais.pendientes);
+    const mostrar = a.slice(0, 20); // Maximo 20 pendientes
     $('countPendientes').textContent=a.length+' aviso(s)';
-    $('pendientes').innerHTML=a.length?a.map(x=>cardAviso(x,true)).join(''):'<div class="empty">No hay pendientes.</div>';
+    $('pendientes').innerHTML=mostrar.length?mostrar.map(x=>cardAviso(x,true)).join(''):'<div class="empty">No hay pendientes.</div>';
+    if(a.length > 20) $('pendientes').innerHTML += `<div style="text-align:center;color:var(--gray);font-size:11px;margin-top:8px;">Mostrando 20 de ${a.length} pendientes.</div>`;
   }catch(e){}
 }
 
@@ -475,7 +477,7 @@ async function cargarHistorial(){
     let filtrados = [...todosLosAvisos];
     if(pais) filtrados = filtrados.filter(x=>x.pais==pais);
     if(estado) filtrados = filtrados.filter(x=>x.estado===estado);
-    // Por defecto, ocultar reemplazados a menos que se pida explícitamente
+    // Por defecto, ocultar reemplazados
     if(!estado) filtrados = filtrados.filter(x=>x.estado!=='reemplazado_por_republicacion');
     if(buscar){
       filtrados = filtrados.filter(x=>
@@ -487,9 +489,12 @@ async function cargarHistorial(){
       );
     }
 
-    $('countHistorial').textContent=filtrados.length+' aviso(s) de '+todosLosAvisos.length;
-    $('historial').innerHTML=filtrados.length?filtrados.slice(0,50).map(x=>cardAviso(x,false)).join(''):'<div class="empty">Sin registros.</div>';
-    $('paginacion').innerHTML=filtrados.length>50?`<span style="color:var(--gray);font-size:11px;">Mostrando 50 de ${filtrados.length}. Usa los filtros para reducir.</span>`:'';
+    const total = filtrados.length;
+    const mostrar = filtrados.slice(0, 30); // Maximo 30 en pantalla
+
+    $('countHistorial').textContent=total+' aviso(s)';
+    $('historial').innerHTML=mostrar.length?mostrar.map(x=>cardAviso(x,false)).join(''):'<div class="empty">Sin registros.</div>';
+    $('paginacion').innerHTML=total>30?`<div style="text-align:center;color:var(--gray);font-size:11px;">Mostrando 30 de ${total}. Usa los filtros para reducir.</div>`:'';
   }catch(e){}
 }
 

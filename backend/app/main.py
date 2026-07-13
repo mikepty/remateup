@@ -1,7 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from .database import Base, engine
+from sqlalchemy.orm import Session
+from .database import Base, engine, get_db
 from .routers import documents, dashboard, approvals, exports
+from .models import Aviso, Documento, Auditoria, Aprobacion
 
 Base.metadata.create_all(bind=engine)
 
@@ -13,7 +15,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ajustar a la URL real del frontend en producción
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -27,3 +29,14 @@ app.include_router(exports.router)
 @app.get("/")
 def salud():
     return {"status": "ok", "servicio": "RemateUp API"}
+
+
+@app.post("/admin/limpiar_bd")
+def limpiar_base_datos(db: Session = Depends(get_db)):
+    """Borra TODOS los avisos y documentos. Usar con cuidado."""
+    db.query(Aprobacion).delete()
+    db.query(Auditoria).delete()
+    db.query(Aviso).delete()
+    db.query(Documento).delete()
+    db.commit()
+    return {"message": "Base de datos limpiada correctamente", "status": "ok"}
