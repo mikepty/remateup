@@ -393,7 +393,7 @@ function cardAviso(a, pendiente){
             <div class="monto">${moneda(a.minimo)}</div>
           </div>
         </div>
-        <div style="margin-top:6px;font-size:10px;color:var(--gray);">${a.categoria||'—'} | ${a.superficie||'—'} | Exp: ${expCorto} | ${a.provincia||'—'} | Codigo: ${a.codigo_ubicacion||'—'}</div>
+        <div style="margin-top:6px;font-size:10px;color:var(--gray);">${a.categoria||'—'} | ${a.superficie||'—'} | Exp: ${expCorto} | ${a.provincia||'—'} | ${labelFinca(a.pais)}: ${a.finca_matr||'—'}</div>
       </div>
       <div class="aviso-footer">
         <button class="btn btn-primary" onclick="toggleDet(${a.id})">Ver</button>
