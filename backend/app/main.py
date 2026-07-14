@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from .database import Base, engine, get_db
 from .routers import documents, dashboard, approvals, exports
-from .models import Aviso, Documento, Auditoria, Aprobacion, Correccion
+from .models import Aviso, Documento, Auditoria, Aprobacion
 
 Base.metadata.create_all(bind=engine)
 
