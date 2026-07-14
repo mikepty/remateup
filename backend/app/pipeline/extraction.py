@@ -23,40 +23,8 @@ CATEGORIAS_VALIDAS = ["CASA", "APARTAMENTO", "TERRENO", "VEHICULO", "MISCELANEO"
 
 def _cargar_aprendizaje(pais: int = None) -> str:
     """Carga correcciones del cliente para mejorar futuras extracciones."""
-    try:
-        from ..database import SessionLocal
-        from ..models import Correccion
-        db = SessionLocal()
-
-        query = db.query(Correccion)
-        if pais:
-            query = query.filter(Correccion.pais == pais)
-
-        correcciones = query.order_by(Correccion.creado_en.desc()).limit(200).all()
-        db.close()
-
-        if not correcciones:
-            return ""
-
-        # Agrupar por campo y encontrar patrones
-        por_campo = {}
-        for c in correcciones:
-            if c.campo not in por_campo:
-                por_campo[c.campo] = []
-            por_campo[c.campo].append((c.valor_anterior, c.valor_nuevo))
-
-        lineas = ["\nAPRENDIZAJE DEL CLIENTE (correcciones anteriores):"]
-        for campo, ejemplos in por_campo.items():
-            # Mostrar los 3 patrones mas comunes
-            counter = Counter(ejemplos)
-            mas_comunes = counter.most_common(3)
-            lineas.append(f"- {campo}:")
-            for (antes, despues), count in mas_comunes:
-                lineas.append(f"  * '{antes}' -> '{despues}' ({count} veces)")
-
-        return "\n".join(lineas)
-    except Exception:
-        return ""
+    # Deshabilitado temporalmente para evitar errores en la BD
+    return ""
 
 
 def _construir_prompt(pais: str, multiples_imagenes: bool = False) -> str:
