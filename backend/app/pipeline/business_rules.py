@@ -149,7 +149,13 @@ def aplicar_reglas(datos: dict) -> dict:
     elif pais == 2:
         datos["codigo_ubicacion"] = CODIGOS_DEPARTAMENTO_CO.get(provincia_raw)
 
-    datos["categoria_codigo"] = CODIGOS_CATEGORIA.get(categoria_raw)
+    # Si contiene "cuota parte" en la descripcion o categoria, es miscelaneo (5)
+    desc_raw = _normalizar(datos.get("descripcion") or "")
+    if "CUOTA PARTE" in categoria_raw or "CUOTA PARTE" in desc_raw or "CUOTAS PARTES" in desc_raw:
+        datos["categoria_codigo"] = 5
+        datos["categoria"] = "MISCELANEO"
+    else:
+        datos["categoria_codigo"] = CODIGOS_CATEGORIA.get(categoria_raw)
 
     if not datos.get("codigo"):
         datos["codigo"] = _generar_codigo_interno(datos)

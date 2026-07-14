@@ -179,6 +179,7 @@
     </div>
     <div class="filtros" id="filtrosPendientes"></div>
     <div id="pendientes"></div>
+    <div id="paginacionPendientes" style="display:flex; justify-content:center; gap:4px; margin-top:12px; flex-wrap:wrap;"></div>
   </div>
 
   <!-- HISTORIAL -->
@@ -236,6 +237,8 @@ let filtroPais = {pendientes:'TODOS', historial:'TODOS'};
 let backendOnline = false;
 let debounceTimer = null;
 let todosLosAvisos = [];
+let paginaActual = 1;
+const ITEMS_POR_PAGINA = 20;
 
 const $ = id => document.getElementById(id);
 const API_BASE = 'https://remateup-backend.onrender.com';
@@ -454,22 +457,38 @@ function renderFiltros(elId, actual, fn, extra){
   }).join('');
 }
 
-// Pendientes
+// Pendientes - maximo 20 por pagina
+let pendientesPagina = 1;
+
 async function cargarPendientes(){
   try{
     const r=await fetch(apiUrl('/dashboard/pendientes'));
     let a=await r.json();
     renderFiltros('filtrosPendientes',filtroPais.pendientes,'filtrarP',false);
     if(filtroPais.pendientes!=='TODOS') a=a.filter(x=>x.pais==filtroPais.pendientes);
-    const mostrar = a.slice(0, 20); // Maximo 20 pendientes
-    $('countPendientes').textContent=a.length+' aviso(s)';
+    const total = a.length;
+    const totalPags = Math.ceil(total / ITEMS_POR_PAGINA);
+    pendientesPagina = Math.min(pendientesPagina, totalPags || 1);
+    const inicio = (pendientesPagina - 1) * ITEMS_POR_PAGINA;
+    const mostrar = a.slice(inicio, inicio + ITEMS_POR_PAGINA);
+
+    $('countPendientes').textContent=total+' aviso(s)';
     $('pendientes').innerHTML=mostrar.length?mostrar.map(x=>cardAviso(x,true)).join(''):'<div class="empty">No hay pendientes.</div>';
-    if(a.length > 20) $('pendientes').innerHTML += `<div style="text-align:center;color:var(--gray);font-size:11px;margin-top:8px;">Mostrando 20 de ${a.length} pendientes.</div>`;
+
+    let pagHtml = '';
+    if(totalPags > 1){
+      if(pendientesPagina > 1) pagHtml += `<button class="btn btn-primary" style="padding:4px 10px;" onclick="pendientesPagina--;cargarPendientes()">Ant</button>`;
+      for(let i=1; i<=totalPags; i++){
+        pagHtml += `<button class="btn ${i===pendientesPagina?'btn-warning':'btn-primary'}" style="padding:4px 10px;" onclick="pendientesPagina=${i};cargarPendientes()">${i}</button>`;
+      }
+      if(pendientesPagina < totalPags) pagHtml += `<button class="btn btn-primary" style="padding:4px 10px;" onclick="pendientesPagina++;cargarPendientes()">Sig</button>`;
+    }
+    $('paginacionPendientes').innerHTML = pagHtml;
   }catch(e){}
 }
 
 // Historial con filtros independientes
-async function cargarHistorial(){
+async function cargarHistorial(page=1){
   try{
     const pais = $('filtroPais').value;
     const estado = $('filtroEstado').value;
@@ -477,13 +496,11 @@ async function cargarHistorial(){
     const fechaRemate = $('filtroFechaRemate').value;
     const fechaSubida = $('filtroFechaSubida').value;
 
-    // Cargar todos los avisos una vez
     if(todosLosAvisos.length === 0){
       const r=await fetch(apiUrl('/dashboard/todos'));
       todosLosAvisos = await r.json();
     }
 
-    // Aplicar filtros localmente
     let filtrados = [...todosLosAvisos];
     if(pais) filtrados = filtrados.filter(x=>x.pais==pais);
     if(estado) filtrados = filtrados.filter(x=>x.estado===estado);
@@ -502,11 +519,28 @@ async function cargarHistorial(){
     }
 
     const total = filtrados.length;
-    const mostrar = filtrados.slice(0, 30);
+    const totalPags = Math.ceil(total / ITEMS_POR_PAGINA);
+    paginaActual = Math.min(page, totalPags || 1);
+    const inicio = (paginaActual - 1) * ITEMS_POR_PAGINA;
+    const mostrar = filtrados.slice(inicio, inicio + ITEMS_POR_PAGINA);
 
     $('countHistorial').textContent=total+' aviso(s)';
     $('historial').innerHTML=mostrar.length?mostrar.map(x=>cardAviso(x,false)).join(''):'<div class="empty">Sin registros.</div>';
-    $('paginacion').innerHTML=total>30?`<div style="text-align:center;color:var(--gray);font-size:11px;">Mostrando 30 de ${total}. Usa los filtros para reducir.</div>`:'';
+
+    // Paginacion
+    let pagHtml = '';
+    if(totalPags > 1){
+      if(paginaActual > 1) pagHtml += `<button class="btn btn-primary" style="padding:4px 10px;" onclick="cargarHistorial(${paginaActual-1})">Ant</button>`;
+      for(let i=1; i<=totalPags; i++){
+        if(i===1 || i===totalPags || (i>=paginaActual-2 && i<=paginaActual+2)){
+          pagHtml += `<button class="btn ${i===paginaActual?'btn-warning':'btn-primary'}" style="padding:4px 10px;" onclick="cargarHistorial(${i})">${i}</button>`;
+        }else if(i===paginaActual-3 || i===paginaActual+3){
+          pagHtml += '<span style="color:var(--gray);">...</span>';
+        }
+      }
+      if(paginaActual < totalPags) pagHtml += `<button class="btn btn-primary" style="padding:4px 10px;" onclick="cargarHistorial(${paginaActual+1})">Sig</button>`;
+    }
+    $('paginacion').innerHTML = pagHtml;
   }catch(e){}
 }
 
