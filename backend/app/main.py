@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from .database import Base, engine, get_db
 from .routers import documents, dashboard, approvals, exports
-from .models import Aviso, Documento, Auditoria, Aprobacion
+from .models import Aviso, Documento, Auditoria, Aprobacion, Correccion
 
 Base.metadata.create_all(bind=engine)
 
@@ -44,12 +44,11 @@ def limpiar_base_datos(db: Session = Depends(get_db)):
 
 @app.put("/admin/editar_aviso/{aviso_id}")
 def editar_aviso(aviso_id: int, campos: dict, db: Session = Depends(get_db)):
-    """Edita campos especificos de un aviso."""
+    """Edita campos especificos de un aviso y guarda correcciones para aprendizaje."""
     aviso = db.query(Aviso).get(aviso_id)
     if not aviso:
         return {"error": "Aviso no encontrado"}
 
-    # Campos permitidos para editar
     campos_permitidos = [
         "codigo", "expediente", "lugar", "proceso", "demandante", "demandado",
         "descripcion", "fecha", "hora", "base", "fianza_porcentaje", "minimo_porcentaje",
@@ -59,6 +58,17 @@ def editar_aviso(aviso_id: int, campos: dict, db: Session = Depends(get_db)):
 
     for campo, valor in campos.items():
         if campo in campos_permitidos and hasattr(aviso, campo):
+            valor_anterior = getattr(aviso, campo)
+            if str(valor_anterior) != str(valor):
+                # Guardar correccion para aprendizaje
+                correccion = Correccion(
+                    aviso_id=aviso_id,
+                    campo=campo,
+                    valor_anterior=str(valor_anterior),
+                    valor_nuevo=str(valor),
+                    pais=aviso.pais,
+                )
+                db.add(correccion)
             setattr(aviso, campo, valor)
 
     db.commit()

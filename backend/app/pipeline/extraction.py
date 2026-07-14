@@ -7,6 +7,7 @@ from google import genai
 from google.genai import types
 import json
 import pathlib
+from collections import Counter
 from ..config import GEMINI_API_KEY, GEMINI_MODEL
 from . import pdf_utils
 
@@ -20,7 +21,49 @@ CAMPOS = [
 CATEGORIAS_VALIDAS = ["CASA", "APARTAMENTO", "TERRENO", "VEHICULO", "MISCELANEO"]
 
 
+def _cargar_aprendizaje(pais: int = None) -> str:
+    """Carga correcciones del cliente para mejorar futuras extracciones."""
+    try:
+        from ..database import SessionLocal
+        from ..models import Correccion
+        db = SessionLocal()
+
+        query = db.query(Correccion)
+        if pais:
+            query = query.filter(Correccion.pais == pais)
+
+        correcciones = query.order_by(Correccion.creado_en.desc()).limit(200).all()
+        db.close()
+
+        if not correcciones:
+            return ""
+
+        # Agrupar por campo y encontrar patrones
+        por_campo = {}
+        for c in correcciones:
+            if c.campo not in por_campo:
+                por_campo[c.campo] = []
+            por_campo[c.campo].append((c.valor_anterior, c.valor_nuevo))
+
+        lineas = ["\nAPRENDIZAJE DEL CLIENTE (correcciones anteriores):"]
+        for campo, ejemplos in por_campo.items():
+            # Mostrar los 3 patrones mas comunes
+            counter = Counter(ejemplos)
+            mas_comunes = counter.most_common(3)
+            lineas.append(f"- {campo}:")
+            for (antes, despues), count in mas_comunes:
+                lineas.append(f"  * '{antes}' -> '{despues}' ({count} veces)")
+
+        return "\n".join(lineas)
+    except Exception:
+        return ""
+
+
 def _construir_prompt(pais: str, multiples_imagenes: bool = False) -> str:
+    # Cargar aprendizaje del cliente
+    pais_code = 1 if pais == "PA" else 2 if pais == "CO" else None
+    aprendizaje = _cargar_aprendizaje(pais_code)
+
     base = f"""Eres un asistente experto en extracción de datos de avisos de remate judicial.
 Analiza el/los documento(s) adjunto(s) y extrae la información en formato JSON.
 
@@ -75,7 +118,8 @@ Reglas de formato:
   visible, usa null (no es un campo crítico, se puede completar manualmente).
 - Si el texto está borroso, cortado o ambiguo, refleja eso con confianza baja,
   NO adivines el valor con confianza alta.
-- Responde ÚNICAMENTE con el array JSON, sin texto adicional, sin markdown."""
+- Responde ÚNICAMENTE con el array JSON, sin texto adicional, sin markdown.
+{aprendizaje}"""
 
     if multiples_imagenes:
         base += """\n\nIMPORTANTE sobre las imágenes adjuntas: son DOS (o más) fotos de la

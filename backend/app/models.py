@@ -100,3 +100,16 @@ class Auditoria(Base):
     accion = Column(String)
     detalle = Column(Text)
     creado_en = Column(DateTime, default=datetime.utcnow)
+
+
+class Correccion(Base):
+    """Ediciones manuales del cliente para aprendizaje."""
+    __tablename__ = "correcciones"
+
+    id = Column(Integer, primary_key=True)
+    aviso_id = Column(Integer, nullable=True)
+    campo = Column(String, nullable=False)
+    valor_anterior = Column(Text)
+    valor_nuevo = Column(Text)
+    pais = Column(Integer, nullable=True)
+    creado_en = Column(DateTime, default=datetime.utcnow)
