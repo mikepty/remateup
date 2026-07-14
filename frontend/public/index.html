@@ -204,7 +204,7 @@
       </select>
       <input type="date" id="filtroFechaRemate" onchange="cargarHistorial()" style="padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px;" title="Fecha del remate">
       <input type="date" id="filtroFechaSubida" onchange="cargarHistorial()" style="padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px;" title="Fecha de subida">
-      <input type="text" id="filtroBuscar" placeholder="Buscar..." onkeyup="debounceBuscar()" style="padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px; width:150px;">
+      <input type="text" id="filtroBuscar" placeholder="Buscar..." onkeyup="cargarHistorial()" style="padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px; width:150px;">
     </div>
     <div id="historial"></div>
     <!-- Paginacion -->
@@ -397,7 +397,7 @@ function cardAviso(a, pendiente){
       </div>
       <div class="aviso-footer">
         <button class="btn btn-primary" onclick="toggleDet(${a.id})">Ver</button>
-        <button class="btn btn-warning" onclick="toggleDet(${a.id});setTimeout(()=>abrirEditor(${a.id}),100)">Editar</button>
+        <button class="btn btn-warning" onclick="abrirEditor(${a.id})">Editar</button>
         ${pendiente?`
           <button class="btn btn-success" onclick="aprobar(${a.id},true)">Aprobar</button>
           <button class="btn btn-danger" onclick="aprobar(${a.id},false)">Rechazar</button>
@@ -766,7 +766,6 @@ async function cargarTodo(){
 
 // Init
 conectar();
-setInterval(()=>{ if(backendOnline) cargarTodo(); },15000);
 </script>
 </body>
 </html>
