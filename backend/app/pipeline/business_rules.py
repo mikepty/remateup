@@ -32,14 +32,28 @@ def _normalizar(texto) -> str:
 
 
 def _generar_codigo_interno(datos: dict) -> str:
-    """
-    TODO Mike: reemplazar por el formato real de código secuencial que use
-    la plataforma (ej. PA641xxxxx / CO641xxxxx, visto en los Excel del cliente).
-    """
+    """Genera codigo secuencial: PA64103XXX para Panama, CO64104XXX para Colombia."""
+    from sqlalchemy import func
+    from ..database import SessionLocal
+    from ..models import Aviso
+
     prefijo = "PA" if datos.get("pais") == 1 else "CO"
-    fecha = (datos.get("fecha") or "SINFECHA").replace("-", "")
-    expediente = (datos.get("expediente") or "SINEXP")[-6:].replace("-", "")
-    return f"{prefijo}-{fecha}-{expediente}"
+    db = SessionLocal()
+
+    # Contar avisos existentes de este pais para generar siguiente secuencial
+    if datos.get("pais") == 1:
+        # Panama: PA64103000 en adelante
+        base_num = 64103000
+        count = db.query(func.count(Aviso.id)).filter(Aviso.pais == 1).scalar() or 0
+    else:
+        # Colombia: CO64104000 en adelante
+        base_num = 64104000
+        count = db.query(func.count(Aviso.id)).filter(Aviso.pais == 2).scalar() or 0
+
+    db.close()
+
+    secuencial = base_num + count + 1
+    return f"{prefijo}{secuencial}"
 
 
 def _a_numero(valor) -> float | None:

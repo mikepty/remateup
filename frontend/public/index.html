@@ -390,11 +390,11 @@ function cardAviso(a, pendiente){
             <div class="monto">${moneda(a.minimo)}</div>
           </div>
         </div>
-        <div style="margin-top:6px;font-size:10px;color:var(--gray);">Exp: ${expCorto} | ${a.provincia||'—'} | Codigo: ${a.codigo_ubicacion||'—'}</div>
+        <div style="margin-top:6px;font-size:10px;color:var(--gray);">${a.categoria||'—'} | ${a.superficie||'—'} | Exp: ${expCorto} | ${a.provincia||'—'} | Codigo: ${a.codigo_ubicacion||'—'}</div>
       </div>
       <div class="aviso-footer">
         <button class="btn btn-primary" onclick="toggleDet(${a.id})">Ver</button>
-        <button class="btn btn-warning" onclick="abrirEditor(${a.id})">Editar</button>
+        <button class="btn btn-warning" onclick="toggleDet(${a.id});setTimeout(()=>abrirEditor(${a.id}),100)">Editar</button>
         ${pendiente?`
           <button class="btn btn-success" onclick="aprobar(${a.id},true)">Aprobar</button>
           <button class="btn btn-danger" onclick="aprobar(${a.id},false)">Rechazar</button>
