@@ -40,3 +40,27 @@ def limpiar_base_datos(db: Session = Depends(get_db)):
     db.query(Documento).delete()
     db.commit()
     return {"message": "Base de datos limpiada correctamente", "status": "ok"}
+
+
+@app.put("/admin/editar_aviso/{aviso_id}")
+def editar_aviso(aviso_id: int, campos: dict, db: Session = Depends(get_db)):
+    """Edita campos especificos de un aviso."""
+    aviso = db.query(Aviso).get(aviso_id)
+    if not aviso:
+        return {"error": "Aviso no encontrado"}
+
+    # Campos permitidos para editar
+    campos_permitidos = [
+        "codigo", "expediente", "lugar", "proceso", "demandante", "demandado",
+        "descripcion", "fecha", "hora", "base", "fianza_porcentaje", "minimo_porcentaje",
+        "fianza", "minimo", "categoria", "categoria_codigo", "provincia",
+        "codigo_ubicacion", "finca_matr", "lote_casa", "plano", "superficie", "estado"
+    ]
+
+    for campo, valor in campos.items():
+        if campo in campos_permitidos and hasattr(aviso, campo):
+            setattr(aviso, campo, valor)
+
+    db.commit()
+    db.refresh(aviso)
+    return {"message": "Aviso actualizado", "aviso_id": aviso.id}
