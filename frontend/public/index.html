@@ -358,6 +358,10 @@ function cardAviso(a, pendiente){
   let fechaPub='';
   if(a.fecha){try{const d=new Date(a.fecha+'T00:00:00');fechaPub=d.toLocaleDateString('es-PA',{day:'2-digit',month:'short',year:'2-digit'});}catch(e){fechaPub=a.fecha;}}
 
+  // Expediente: solo los primeros digitos antes del primer guion
+  let expCorto = a.expediente||'';
+  if(expCorto.includes('-')) expCorto = expCorto.split('-')[0];
+
   const desc = a.descripcion||'Sin descripcion';
   const descResumen = desc.length > 80 ? desc.substring(0, 80) + '...' : desc;
 
@@ -386,7 +390,7 @@ function cardAviso(a, pendiente){
             <div class="monto">${moneda(a.minimo)}</div>
           </div>
         </div>
-        <div style="margin-top:6px;font-size:10px;color:var(--gray);">Ubicacion: ${a.codigo_ubicacion||'—'} | ${a.provincia||'—'}</div>
+        <div style="margin-top:6px;font-size:10px;color:var(--gray);">Exp: ${expCorto} | ${a.provincia||'—'} | Codigo: ${a.codigo_ubicacion||'—'}</div>
       </div>
       <div class="aviso-footer">
         <button class="btn btn-primary" onclick="toggleDet(${a.id})">Ver</button>
@@ -402,14 +406,17 @@ function cardAviso(a, pendiente){
 
 function detalleCard(a){
   const falt=(a.campos_faltantes||[]).map(c=>'<span style="background:#fee2e2;color:#991b1b;padding:1px 6px;border-radius:4px;font-size:9px;margin-right:3px;">'+c+'</span>').join('')||'<span style="color:var(--gray)">—</span>';
+  // Expediente completo en el detalle
+  const expCompleto = a.expediente||'—';
   return `
     <div class="detalle-grid">
       <div class="campo"><span class="k">Fecha del Remate</span><span class="v">${a.fecha||'—'}</span></div>
       <div class="campo"><span class="k">Hora del Remate</span><span class="v">${a.hora||'—'}</span></div>
-      <div class="campo"><span class="k">${labelLoc(a.pais)}</span><span class="v">${a.provincia||'—'}</span></div>
+      <div class="campo"><span class="k">Ubicacion</span><span class="v">${a.codigo_ubicacion||'—'}</span></div>
+      <div class="campo"><span class="k">Provincia/Depto</span><span class="v">${a.provincia||'—'}</span></div>
       <div class="campo"><span class="k">Juzgado</span><span class="v">${a.lugar||'—'}</span></div>
       <div class="campo"><span class="k">Tipo de proceso</span><span class="v">${a.proceso||'—'}</span></div>
-      <div class="campo"><span class="k">Expediente</span><span class="v">${a.expediente||'—'}</span></div>
+      <div class="campo"><span class="k">Expediente</span><span class="v">${expCompleto}</span></div>
     </div>
     <div class="campo-full"><span class="k">Partes</span><div class="v">Demandante: ${a.demandante||'—'}</div><div class="v">Demandado: ${a.demandado||'—'}</div></div>
     <div class="campo-full"><span class="k">Descripcion completa</span><div class="v" style="line-height:1.5;">${a.descripcion||'—'}</div></div>
@@ -422,7 +429,6 @@ function detalleCard(a){
       <div class="campo"><span class="k">${labelFinca(a.pais)}</span><span class="v">${a.finca_matr||'—'}</span></div>
       <div class="campo"><span class="k">Plano</span><span class="v">${a.plano||'—'}</span></div>
       <div class="campo"><span class="k">Superficie</span><span class="v">${a.superficie||'—'}</span></div>
-      <div class="campo"><span class="k">Codigo Ubicacion</span><span class="v">${a.codigo_ubicacion??'—'}</span></div>
     </div>
     <div style="margin-top:8px;"><span style="font-size:9px;color:var(--gray);text-transform:uppercase;">Campos faltantes</span><div style="margin-top:2px;">${falt}</div></div>
     ${a.discrepancia_valores?'<div style="margin-top:6px;padding:6px 10px;background:#fef3c7;border-radius:6px;color:#92400e;font-size:10px;">Discrepancia de valores detectada.</div>':''}
