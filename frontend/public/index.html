@@ -254,8 +254,6 @@ async function conectar(){
     }
   }catch(e){
     backendOnline = false;
-    // Retry in 5 seconds if backend is sleeping (Render free tier)
-    setTimeout(conectar, 5000);
   }
 }
 
@@ -316,17 +314,17 @@ async function subirLote(){
 }
 
 async function monitorear(id, intentos=0){
-  if(intentos>60){ showStatus('uploadStatus','loading','Sigue procesando...'); return; }
+  if(intentos>60){ showStatus('uploadStatus','loading','Sigue procesando... Refresca manualmente.'); return; }
   try{
     const r = await fetch(apiUrl('/documentos/'+id));
     const d = await r.json();
     if(d.estado==='completado'){
-      showStatus('uploadStatus','ok','Completado: '+d.avisos.length+' aviso(s) procesado(s).');
-      cargarTodo(); return;
+      showStatus('uploadStatus','ok','Completado: '+d.avisos.length+' aviso(s). Refresca para ver.');
+      todosLosAvisos = []; return;
     }
     if(d.estado==='error'){ showStatus('uploadStatus','error','Error en procesamiento.'); return; }
-    setTimeout(()=>monitorear(id,intentos+1),5000);
-  }catch(e){ setTimeout(()=>monitorear(id,intentos+1),5000); }
+    showStatus('uploadStatus','loading','Procesando... Refresca en unos segundos.');
+  }catch(e){}
 }
 
 function showStatus(elId,type,msg){
@@ -544,10 +542,7 @@ async function cargarHistorial(page=1){
 
 function filtrarP(v){ filtroPais.pendientes=v; cargarPendientes(); }
 
-function debounceBuscar(){
-  clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(()=>cargarHistorial(), 300);
-}
+function debounceBuscar(){ cargarHistorial(); }
 
 // Editor de avisos
 let avisoEditando = null;
