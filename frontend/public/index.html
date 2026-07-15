@@ -344,7 +344,7 @@ async function subirLote(){
 }
 
 async function monitorear(id, intentos=0){
-  if(intentos>60){ showStatus('uploadStatus','loading','Sigue procesando... Refresca manualmente.'); return; }
+  if(intentos>140){ showStatus('uploadStatus','loading','El procesamiento esta tomando mas tiempo de lo esperado. <button class="btn btn-primary" style="margin-left:8px;padding:4px 12px;" onclick="monitorear('+id+',0)">Seguir esperando</button>'); return; }
   try{
     const r = await fetch(apiUrl('/documentos/'+id));
     const d = await r.json();
@@ -361,9 +361,10 @@ async function monitorear(id, intentos=0){
     }
     // Mostrar estado de procesamiento indicando cuantas imagenes se procesan
     const totalArchivos = d.total_archivos || 1;
-    let msg = 'Procesando documento #'+id+'...';
+    const elapsed = intentos * 3;
+    let msg = 'Procesando documento #'+id+' ('+elapsed+'s)...';
     if(totalArchivos > 1){
-      msg = 'Procesando '+totalArchivos+' imagenes (superior + inferior) del documento #'+id+'...';
+      msg = 'Procesando '+totalArchivos+' imagenes (superior + inferior) del documento #'+id+' ('+elapsed+'s)...';
     }
     showStatus('uploadStatus','loading', msg);
     setTimeout(()=>monitorear(id, intentos+1), 3000);
