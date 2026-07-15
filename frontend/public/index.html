@@ -761,7 +761,7 @@ async function cargarAuditoria(){
     const r=await fetch(apiUrl('/dashboard/auditoria'));
     const regs=await r.json();
     $('auditoria').innerHTML=regs.map(r=>
-      '<div class="audit-item"><span class="agent">['+r.agente+']</span><span class="action">'+r.accion+' — '+(r.detalle||'').slice(0,100)+'</span><span class="time">'+new Date(r.creado_en).toLocaleTimeString('es-PA')+'</span></div>'
+      '<div class="audit-item"><span class="agent">['+r.agente+']</span><span class="action">'+r.accion+' — '+(r.detalle||'').slice(0,100)+'</span><span class="time">'+new Date(r.creado_en+'Z').toLocaleTimeString('es-PA',{timeZone:'America/Panama'})+'</span></div>'
     ).join('');
   }catch(e){}
 }
@@ -865,7 +865,7 @@ async function exportarFiltrados(){
 async function cargarTodo(){
   if(!backendOnline) return;
   await Promise.all([cargarMetricas(),cargarPendientes(),cargarHistorial(),cargarAuditoria(),mostrarUltimosProcesados()]);
-  $('ultimaActualizacion').textContent='Actualizado: '+new Date().toLocaleTimeString('es-PA');
+  $('ultimaActualizacion').textContent='Actualizado: '+new Date().toLocaleTimeString('es-PA',{timeZone:'America/Panama'});
 }
 
 // Init
