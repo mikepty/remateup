@@ -309,12 +309,9 @@ async function subirDocumento(){
   if(inf.files.length) fd.append('archivos', inf.files[0]);
   fd.append('pais', pais);
   $('btnSubir').disabled = true;
-  showStatus('uploadStatus','loading','Subiendo... (puede tardar hasta 60s si el servidor estaba inactivo)');
+  showStatus('uploadStatus','loading','Subiendo... (puede tardar hasta 2 min si el servidor estaba inactivo)');
   try{
-    const controller = new AbortController();
-    const timeout = setTimeout(()=>controller.abort(), 120000);
-    const r = await fetch(apiUrl('/documentos/subir'),{method:'POST',body:fd, signal:controller.signal});
-    clearTimeout(timeout);
+    const r = await fetch(apiUrl('/documentos/subir'),{method:'POST',body:fd});
     if(!r.ok) throw new Error('HTTP '+r.status);
     const d = await r.json();
     const numArchivos = d.archivos_recibidos || 1;
