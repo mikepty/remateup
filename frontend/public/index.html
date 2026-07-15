@@ -167,6 +167,16 @@
   <!-- METRICS -->
   <div class="metrics" id="metricas"></div>
 
+  <!-- ULTIMOS PROCESADOS -->
+  <div class="card" id="ultimosProcesadosCard" style="display:none;">
+    <div class="card-title">
+      Ultimos Procesados
+      <span class="count" id="countUltimos"></span>
+    </div>
+    <div style="font-size:9px; color:var(--gray); margin-bottom:8px;">Avisos del ultimo documento procesado</div>
+    <div id="ultimosProcesados"></div>
+  </div>
+
   <!-- PENDIENTES -->
   <div class="card">
     <div class="card-title">
@@ -238,7 +248,7 @@ let backendOnline = false;
 let debounceTimer = null;
 let todosLosAvisos = [];
 let paginaActual = 1;
-const ITEMS_POR_PAGINA = 20;
+const ITEMS_POR_PAGINA = 10;
 
 const $ = id => document.getElementById(id);
 const API_BASE = 'https://remateup-backend.onrender.com';
@@ -246,14 +256,18 @@ const apiUrl = path => API_BASE + path;
 
 async function conectar(){
   try{
-    const r = await fetch(apiUrl('/'), {signal: AbortSignal.timeout(10000)});
+    showStatus('uploadStatus','loading','Conectando al servidor...');
+    const r = await fetch(apiUrl('/'), {signal: AbortSignal.timeout(30000)});
     const d = await r.json();
     if(d.status === 'ok'){
       backendOnline = true;
+      showStatus('uploadStatus','ok','Servidor conectado.');
+      setTimeout(()=>{ $('uploadStatus').innerHTML=''; }, 2000);
       cargarTodo();
     }
   }catch(e){
     backendOnline = false;
+    showStatus('uploadStatus','error','No se pudo conectar al servidor. El backend puede estar despertando (espera 30-60s y recarga la pagina).');
   }
 }
 
@@ -295,9 +309,12 @@ async function subirDocumento(){
   if(inf.files.length) fd.append('archivos', inf.files[0]);
   fd.append('pais', pais);
   $('btnSubir').disabled = true;
-  showStatus('uploadStatus','loading','Subiendo...');
+  showStatus('uploadStatus','loading','Subiendo... (puede tardar hasta 60s si el servidor estaba inactivo)');
   try{
-    const r = await fetch(apiUrl('/documentos/subir'),{method:'POST',body:fd});
+    const controller = new AbortController();
+    const timeout = setTimeout(()=>controller.abort(), 120000);
+    const r = await fetch(apiUrl('/documentos/subir'),{method:'POST',body:fd, signal:controller.signal});
+    clearTimeout(timeout);
     if(!r.ok) throw new Error('HTTP '+r.status);
     const d = await r.json();
     const numArchivos = d.archivos_recibidos || 1;
@@ -335,8 +352,11 @@ async function monitorear(id, intentos=0){
     const r = await fetch(apiUrl('/documentos/'+id));
     const d = await r.json();
     if(d.estado==='completado'){
-      showStatus('uploadStatus','ok','Completado: '+d.avisos.length+' aviso(s). Refresca para ver.');
-      todosLosAvisos = []; return;
+      showStatus('uploadStatus','ok','✅ Completado: '+d.avisos.length+' aviso(s) extraído(s).');
+      todosLosAvisos = [];
+      cargarTodo();
+      mostrarUltimosProcesados(d.avisos);
+      return;
     }
     if(d.estado==='error'){ showStatus('uploadStatus','error','Error en procesamiento.'); return; }
     // Mostrar estado de procesamiento indicando cuantas imagenes se procesan
@@ -348,6 +368,30 @@ async function monitorear(id, intentos=0){
     showStatus('uploadStatus','loading', msg);
     setTimeout(()=>monitorear(id, intentos+1), 3000);
   }catch(e){ setTimeout(()=>monitorear(id, intentos+1), 5000); }
+}
+
+// Mostrar los ultimos avisos procesados en seccion dedicada
+async function mostrarUltimosProcesados(avisosResumen){
+  if(!avisosResumen || avisosResumen.length === 0){
+    $('ultimosProcesadosCard').style.display = 'none';
+    return;
+  }
+  // Recargar datos completos del historial para tener los objetos completos
+  try{
+    const r = await fetch(apiUrl('/dashboard/todos'));
+    const todos = await r.json();
+    const ids = avisosResumen.map(a => a.id);
+    const recientes = todos.filter(a => ids.includes(a.id));
+    $('ultimosProcesadosCard').style.display = 'block';
+    $('countUltimos').textContent = recientes.length + ' aviso(s)';
+    $('ultimosProcesados').innerHTML = recientes.length
+      ? recientes.map(x => cardAviso(x, false)).join('')
+      : '<div class="empty">Sin resultados.</div>';
+    // Scroll al card
+    $('ultimosProcesadosCard').scrollIntoView({behavior:'smooth', block:'start'});
+  }catch(e){
+    $('ultimosProcesadosCard').style.display = 'none';
+  }
 }
 
 function showStatus(elId,type,msg){
