@@ -36,6 +36,29 @@ def _construir_prompt(pais: str, multiples_imagenes: bool = False) -> str:
     base = f"""Eres un asistente experto en extracción de datos de avisos de remate judicial.
 Analiza el/los documento(s) adjunto(s) y extrae la información en formato JSON.
 
+=== REGLA ANTI-ALUCINACIÓN (MÁXIMA PRIORIDAD) ===
+TODA la información que devuelvas DEBE estar VISIBLE y LEGIBLE en las imágenes
+proporcionadas. NUNCA inventes, supongas, completes ni imagines datos que no
+puedas leer directamente del texto en las imágenes.
+
+Si NO puedes leer claramente el texto de las imágenes:
+- Devuelve un array VACÍO: []
+- Es PREFERIBLE devolver [] a devolver datos inventados.
+
+Si puedes leer ALGO pero no todo:
+- Solo incluye los avisos cuyos datos puedas leer DIRECTAMENTE de la imagen.
+- Para campos que no puedas leer claramente, usa null.
+- Pon confianza MUY BAJA (0.1-0.3) en campos que apenas se distingan.
+
+PROHIBIDO: Inventar nombres de personas, direcciones, montos, juzgados o
+cualquier dato que no esté LITERALMENTE escrito en el texto visible de las
+imágenes. Si haces esto, el sistema falla por completo.
+
+VERIFICACIÓN: Antes de devolver tu respuesta, pregúntate para cada campo:
+"¿Puedo señalar EXACTAMENTE dónde en la imagen leí este dato?" Si la
+respuesta es no, pon null en ese campo.
+=== FIN REGLA ANTI-ALUCINACIÓN ===
+
 Devuelve un array de objetos. Cada objeto representa UN remate a subir, según
 estas reglas para agrupar o separar bienes (MUY IMPORTANTE, definidas por el cliente):
 
@@ -148,10 +171,12 @@ de arriba a abajo. Muchos avisos de remate comienzan en la mitad superior y
 TERMINAN en la mitad inferior. Tu tarea principal es FUSIONAR y dar continuidad
 al texto donde se corta entre ambas imágenes para evitar fragmentación.
 
-Si en la página completa solo hay, por ejemplo, 2 avisos de remate reales que
-abarcan ambas mitades, tu salida JSON debe contener estrictamente 2 objetos,
-NO MÁS. Evita crear registros "fantasmas" o duplicados a partir de fragmentos
-sueltos de texto.
+RECUERDA: SOLO extrae información que puedas LEER DIRECTAMENTE del texto
+visible en estas imágenes. Si el texto es borroso, pequeño o ilegible, devuelve
+[] en vez de inventar datos. NUNCA fabriques nombres, montos o direcciones.
+
+Si en la página completa solo hay 2 avisos de remate reales, tu salida JSON
+debe contener estrictamente 2 objetos. Si hay 0 remates legibles, devuelve [].
 
 INSTRUCCIONES DE LECTURA:
 1. Las imágenes muestran texto en formato de COLUMNAS verticales (periódico).
