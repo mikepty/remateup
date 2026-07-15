@@ -378,12 +378,16 @@ def _extraer_una_llamada(archivo_paths: list[str], pais: str = "PA", intento: in
     content.append({"type": "text", "text": prompt})
 
     try:
-        response = client.messages.create(
+        # Usar streaming para evitar timeout en requests largos (>10min)
+        text = ""
+        with client.messages.stream(
             model=CLAUDE_MODEL,
             max_tokens=65536,
             temperature=0.0,
             messages=[{"role": "user", "content": content}],
-        )
+        ) as stream:
+            for chunk in stream.text_stream:
+                text += chunk
     except Exception as e:
         error_str = str(e).lower()
         if ("429" in error_str or "rate" in error_str or "overloaded" in error_str
@@ -397,12 +401,6 @@ def _extraer_una_llamada(archivo_paths: list[str], pais: str = "PA", intento: in
                 print(f"[extraction] Error persistente tras 4 reintentos.")
                 raise
         raise
-
-    # Extraer texto de la respuesta
-    text = ""
-    for block in response.content:
-        if block.type == "text":
-            text += block.text
 
     text = text.strip().replace("```json", "").replace("```", "").strip()
     resultado = _parsear_json_con_recuperacion(text)
