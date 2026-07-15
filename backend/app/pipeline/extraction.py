@@ -41,22 +41,26 @@ TODA la información que devuelvas DEBE estar VISIBLE y LEGIBLE en las imágenes
 proporcionadas. NUNCA inventes, supongas, completes ni imagines datos que no
 puedas leer directamente del texto en las imágenes.
 
-Si NO puedes leer claramente el texto de las imágenes:
-- Devuelve un array VACÍO: []
-- Es PREFERIBLE devolver [] a devolver datos inventados.
+PROBLEMA CONOCIDO: En pruebas anteriores, generaste datos INVENTADOS que no
+existían en las imágenes (nombres de personas, montos, direcciones fabricados).
+Esto es INACEPTABLE. El cliente verificó que los datos extraídos NO correspondían
+con el texto real del periódico.
 
-Si puedes leer ALGO pero no todo:
-- Solo incluye los avisos cuyos datos puedas leer DIRECTAMENTE de la imagen.
-- Para campos que no puedas leer claramente, usa null.
-- Pon confianza MUY BAJA (0.1-0.3) en campos que apenas se distingan.
+REGLAS ESTRICTAS:
+1. Lee el texto CARÁCTER POR CARÁCTER de las imágenes. No "recuerdes" ni
+   "completes" información de tu entrenamiento.
+2. Si un nombre dice "KRISTEL CASTILLO" en la imagen, escribe exactamente
+   "KRISTEL CASTILLO", no otro nombre que te parezca más probable.
+3. Si un monto dice "B/. 12,000.00" en la imagen, escribe exactamente 12000.00.
+4. Si NO puedes leer un dato claramente de la imagen, pon null. NUNCA inventes.
+5. Si no encuentras NINGÚN aviso de remate legible en las imágenes, devuelve: []
+6. Cada dato que incluyas debe ser TRANSCRIPCIÓN DIRECTA del texto visible.
 
-PROHIBIDO: Inventar nombres de personas, direcciones, montos, juzgados o
-cualquier dato que no esté LITERALMENTE escrito en el texto visible de las
-imágenes. Si haces esto, el sistema falla por completo.
-
-VERIFICACIÓN: Antes de devolver tu respuesta, pregúntate para cada campo:
-"¿Puedo señalar EXACTAMENTE dónde en la imagen leí este dato?" Si la
-respuesta es no, pon null en ese campo.
+VERIFICACIÓN FINAL: Antes de responder, para CADA aviso revisa:
+- ¿El nombre del demandante está ESCRITO en la imagen? Si no -> null
+- ¿El monto de la base está IMPRESO en la imagen? Si no -> null  
+- ¿La dirección está VISIBLE en la imagen? Si no -> null
+Si no puedes confirmar esto para todos los campos clave, NO incluyas ese aviso.
 === FIN REGLA ANTI-ALUCINACIÓN ===
 
 Devuelve un array de objetos. Cada objeto representa UN remate a subir, según
@@ -357,8 +361,9 @@ def _extraer_una_llamada(archivo_paths: list[str], pais: str = "PA", intento: in
     try:
         response = client.models.generate_content(
             model=GEMINI_MODEL,
-            contents=[*contenidos, prompt],
+            contents=[prompt, *contenidos],
             config=types.GenerateContentConfig(
+                temperature=0.0,
                 max_output_tokens=65536,
                 http_options=types.HttpOptions(timeout=300_000),
             ),
