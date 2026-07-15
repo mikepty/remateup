@@ -1,14 +1,10 @@
 """
-Agente de Extracción (equivalente al "OCR Agent" + "Information Extraction Agent"
-de la propuesta original, simplificados en uno solo porque Gemini hace ambas
-cosas en una sola llamada: lee la imagen/PDF Y estructura el texto).
+Agente de Extracción — usa Claude (Anthropic) para leer imágenes/PDFs de
+avisos de remate judicial y extraer datos estructurados.
 """
-from google import genai
-from google.genai import types
 import json
 import pathlib
-from collections import Counter
-from ..config import GEMINI_API_KEY, GEMINI_MODEL
+from ..config import ANTHROPIC_API_KEY, CLAUDE_MODEL
 from . import pdf_utils
 
 CAMPOS = [
@@ -293,11 +289,8 @@ imagen dentro de un PDF o fotografía de periódico. La página típica tiene:
 
 def _parsear_json_con_recuperacion(texto: str) -> list[dict]:
     """
-    Intenta parsear el JSON normal. Si la respuesta viene cortada (documento
-    muy largo, ej. el PDF de 75 páginas de Colombia, puede exceder el límite
-    de tokens de salida del modelo), rescata todos los objetos COMPLETOS que
-    sí llegaron bien, descartando solo el último objeto incompleto -- en vez
-    de perder todo el documento por un solo aviso cortado a la mitad.
+    Intenta parsear el JSON normal. Si la respuesta viene cortada, rescata
+    todos los objetos COMPLETOS que sí llegaron bien.
     """
     try:
         return json.loads(texto)
@@ -306,77 +299,98 @@ def _parsear_json_con_recuperacion(texto: str) -> list[dict]:
 
     ultimo_cierre = texto.rfind("}")
     if ultimo_cierre == -1:
-        raise ValueError("La respuesta de Gemini no contiene ningún objeto JSON completo -- "
-                          "reintenta, o si persiste, el documento puede ser demasiado grande "
-                          "para una sola llamada (dividir en bloques de páginas).")
+        raise ValueError("La respuesta del modelo no contiene ningún objeto JSON completo.")
 
     texto_recortado = texto[:ultimo_cierre + 1] + "]"
     try:
         resultado = json.loads(texto_recortado)
-        print(f"[extraction] AVISO: la respuesta de Gemini venía truncada. "
-              f"Se recuperaron {len(resultado)} aviso(s) completos; "
-              f"es posible que falten avisos del final del documento.")
+        print(f"[extraction] AVISO: respuesta truncada. "
+              f"Se recuperaron {len(resultado)} aviso(s) completos.")
         return resultado
     except json.JSONDecodeError as e:
-        raise ValueError(f"No se pudo parsear ni siquiera con recuperación. "
-                          f"El documento probablemente necesita dividirse en bloques de páginas. "
-                          f"Error original: {e}")
+        raise ValueError(f"No se pudo parsear. Error: {e}")
 
 
-def _preparar_contenido(archivo_path: str, client) -> object:
-    """Convierte un archivo en el 'Part' que Gemini espera, usando Files API
-    si es grande, o datos inline si es chico."""
+def _preparar_imagen_claude(archivo_path: str) -> dict:
+    """Convierte un archivo en el formato que Claude espera para imágenes."""
+    import base64
     ext = archivo_path.split(".")[-1].lower()
     mime = {
         "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
-        "pdf": "application/pdf"
+        "gif": "image/gif", "webp": "image/webp",
     }.get(ext, "image/jpeg")
 
-    tamano_mb = pathlib.Path(archivo_path).stat().st_size / (1024 * 1024)
-    UMBRAL_FILES_API_MB = 15
-    if tamano_mb > UMBRAL_FILES_API_MB:
-        return client.files.upload(file=archivo_path)
-    return types.Part.from_bytes(data=pathlib.Path(archivo_path).read_bytes(), mime_type=mime)
+    data = pathlib.Path(archivo_path).read_bytes()
+    b64 = base64.standard_b64encode(data).decode("utf-8")
+
+    return {
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": mime,
+            "data": b64,
+        }
+    }
 
 
 def _extraer_una_llamada(archivo_paths: list[str], pais: str = "PA", intento: int = 0) -> list[dict]:
     """
-    Hace UNA llamada a Gemini sobre uno o más archivos que representan la
+    Hace UNA llamada a Claude sobre uno o más archivos que representan la
     MISMA unidad de contexto (ej. imagen única, o mitad superior + mitad
     inferior de una misma página de periódico). Devuelve una lista de dicts:
       { "datos": {...campos...}, "confianza": {...campos...} }
     """
     import time
+    import anthropic
 
-    if not GEMINI_API_KEY:
-        raise RuntimeError("GEMINI_API_KEY no configurada")
+    from ..config import ANTHROPIC_API_KEY, CLAUDE_MODEL
 
-    print(f"[extraction] API key: {GEMINI_API_KEY[:8]}...{GEMINI_API_KEY[-4:]} (longitud: {len(GEMINI_API_KEY)})")
-    print(f"[extraction] Modelo: {GEMINI_MODEL}")
+    if not ANTHROPIC_API_KEY:
+        raise RuntimeError("ANTHROPIC_API_KEY no configurada")
 
-    client = genai.Client(api_key=GEMINI_API_KEY)
-    contenidos = [_preparar_contenido(p, client) for p in archivo_paths]
+    print(f"[extraction] API key: {ANTHROPIC_API_KEY[:12]}... (longitud: {len(ANTHROPIC_API_KEY)})")
+    print(f"[extraction] Modelo: {CLAUDE_MODEL}")
+
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     prompt = _construir_prompt(pais, multiples_imagenes=len(archivo_paths) > 1)
 
+    # Construir contenido: imágenes + prompt de texto
+    content = []
+    for p in archivo_paths:
+        ext = p.split(".")[-1].lower()
+        if ext == "pdf":
+            # Para PDFs, extraer como imágenes de cada página no es viable aquí.
+            # Claude acepta PDFs como documento directamente
+            import base64
+            data = pathlib.Path(p).read_bytes()
+            b64 = base64.standard_b64encode(data).decode("utf-8")
+            content.append({
+                "type": "document",
+                "source": {
+                    "type": "base64",
+                    "media_type": "application/pdf",
+                    "data": b64,
+                }
+            })
+        else:
+            content.append(_preparar_imagen_claude(p))
+
+    content.append({"type": "text", "text": prompt})
+
     try:
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=[prompt, *contenidos],
-            config=types.GenerateContentConfig(
-                temperature=0.0,
-                max_output_tokens=65536,
-                http_options=types.HttpOptions(timeout=300_000),
-            ),
+        response = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=65536,
+            temperature=0.0,
+            messages=[{"role": "user", "content": content}],
         )
     except Exception as e:
         error_str = str(e).lower()
-        # Si es rate limit, quota exceeded, o servicio no disponible, reintentar con espera
-        if ("429" in error_str or "quota" in error_str or "rate" in error_str 
-            or "exceeded" in error_str or "503" in error_str or "unavailable" in error_str
-            or "high demand" in error_str or "overloaded" in error_str):
+        if ("429" in error_str or "rate" in error_str or "overloaded" in error_str
+            or "529" in error_str or "capacity" in error_str):
             if intento < 4:
-                wait_time = 30 * (intento + 1)  # 30s, 60s, 90s, 120s
-                print(f"[extraction] Servicio no disponible/rate limit. Reintento {intento+1}/4, esperando {wait_time}s...")
+                wait_time = 30 * (intento + 1)
+                print(f"[extraction] Rate limit/overloaded. Reintento {intento+1}/4, esperando {wait_time}s...")
                 time.sleep(wait_time)
                 return _extraer_una_llamada(archivo_paths, pais, intento + 1)
             else:
@@ -384,7 +398,13 @@ def _extraer_una_llamada(archivo_paths: list[str], pais: str = "PA", intento: in
                 raise
         raise
 
-    text = response.text.strip().replace("```json", "").replace("```", "").strip()
+    # Extraer texto de la respuesta
+    text = ""
+    for block in response.content:
+        if block.type == "text":
+            text += block.text
+
+    text = text.strip().replace("```json", "").replace("```", "").strip()
     resultado = _parsear_json_con_recuperacion(text)
 
     for item in resultado:
