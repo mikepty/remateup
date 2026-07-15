@@ -384,6 +384,9 @@ function cardAviso(a, pendiente){
   // Email de observaciones
   const emailObs = a.email_observaciones ? `<div style="margin-top:4px;font-size:10px;color:var(--navy);">📧 ${a.email_observaciones}</div>` : '';
 
+  // Prevista (ubicación para Google Maps)
+  const previstaHtml = a.prevista ? `<div style="margin-top:4px;font-size:10px;color:var(--green);"><a href="https://www.google.com/maps/search/${encodeURIComponent(a.prevista)}" target="_blank" style="color:var(--green);text-decoration:none;">📍 ${a.prevista}</a></div>` : '';
+
   return `
     <div class="aviso-card">
       <div class="aviso-header">
@@ -396,6 +399,7 @@ function cardAviso(a, pendiente){
       </div>
       <div class="aviso-body">
         <div class="desc">${descResumen}</div>
+        ${previstaHtml}
         ${emailObs}
         <div class="valores">
           <div class="valor-box">
@@ -443,6 +447,7 @@ function detalleCard(a){
       <div class="campo"><span class="k">Codigo de Prensa</span><span class="v">${a.codigo_prensa||'—'}</span></div>
       <div class="campo"><span class="k">Email (Observaciones)</span><span class="v">${a.email_observaciones||'—'}</span></div>
     </div>
+    <div class="campo-full"><span class="k">Ubicacion para Mapa (Prevista)</span><div class="v">${a.prevista?'<a href="https://www.google.com/maps/search/'+encodeURIComponent(a.prevista)+'" target="_blank" style="color:var(--green);">📍 '+a.prevista+'</a>':'—'}</div></div>
     <div class="campo-full"><span class="k">Partes</span><div class="v">Demandante: ${a.demandante||'—'}</div><div class="v">Demandado: ${a.demandado||'—'}</div></div>
     <div class="campo-full"><span class="k">Descripcion completa del bien</span><div class="v" style="line-height:1.5;">${descCompleta}</div></div>
     <div class="detalle-grid" style="margin-top:10px;">
@@ -622,6 +627,8 @@ function abrirEditor(id){
           <input id="ed_codigo_prensa" value="${a.codigo_prensa||''}" placeholder="LP-2025-07-28-P23" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
           <label style="font-size:10px;color:var(--gray);">Email (Observaciones)</label>
           <input id="ed_email_observaciones" value="${a.email_observaciones||''}" placeholder="correo@ejemplo.com" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
+          <label style="font-size:10px;color:var(--gray);">Prevista (Mapa)</label>
+          <input id="ed_prevista" value="${a.prevista||''}" placeholder="332 m2, PH Ejemplo, Corr: Bella Vista, Dist: Panama" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
         </div>
         <div style="grid-column:1/-1;margin-top:8px;">
           <label style="font-size:10px;color:var(--gray);">Descripcion</label>
@@ -663,6 +670,7 @@ async function guardarEdicion(){
     estado: $('ed_estado').value,
     codigo_prensa: $('ed_codigo_prensa').value || null,
     email_observaciones: $('ed_email_observaciones').value || null,
+    prevista: $('ed_prevista').value || null,
   };
   try{
     await fetch(apiUrl('/admin/editar_aviso/'+avisoEditando.id),{

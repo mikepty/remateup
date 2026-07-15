@@ -16,6 +16,7 @@ def _migrar_columnas():
             ("codigo_prensa", "VARCHAR"),
             ("email_observaciones", "VARCHAR"),
             ("descripcion_completa", "TEXT"),
+            ("prevista", "TEXT"),
         ]
     }
     insp = inspect(engine)
@@ -80,7 +81,7 @@ def editar_aviso(aviso_id: int, campos: dict, db: Session = Depends(get_db)):
         "fianza_porcentaje", "minimo_porcentaje",
         "fianza", "minimo", "categoria", "categoria_codigo", "provincia",
         "codigo_ubicacion", "finca_matr", "lote_casa", "plano", "superficie", "estado",
-        "codigo_prensa", "email_observaciones", "codigo_fuente"
+        "codigo_prensa", "email_observaciones", "codigo_fuente", "prevista"
     ]
 
     for campo, valor in campos.items():

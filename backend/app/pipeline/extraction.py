@@ -14,7 +14,7 @@ from . import pdf_utils
 CAMPOS = [
     "pais", "codigo", "fecha", "hora", "proceso", "expediente", "lugar", "categoria",
     "demandante", "demandado", "lote_casa", "descripcion", "descripcion_completa",
-    "superficie", "finca_matr", "codigo_ubicacion", "provincia", "plano", "base",
+    "prevista", "superficie", "finca_matr", "codigo_ubicacion", "provincia", "plano", "base",
     "fianza_porcentaje", "minimo_porcentaje", "fianza", "minimo", "codigo_fuente",
     "codigo_prensa", "email_observaciones",
 ]
@@ -68,11 +68,19 @@ Reglas de formato:
   "fianza del 10%" -> 10). Panamá usa 10, 20 o 25 (varía por aviso, leerlo del
   texto). Colombia es SIEMPRE 40 -- si no lo ves explícito en el texto de
   Colombia, igual responde 40 (es un valor fijo conocido).
+  MAPEO DE FRASES CLAVE para fianza_porcentaje (= "Mínimo para participar"):
+  Busca en el texto frases como: "Se requiere consignar a la secretaría del
+  juzgado...", "Para hacer postura se requiere consignar...", "Consignación
+  previa", "fianza del X%". El porcentaje que aparezca es fianza_porcentaje.
 - "minimo_porcentaje": el PORCENTAJE mínimo de la base con el que se puede
   ganar el remate, según lo que ordene el juzgado en el texto (ej. "no será
   inferior a las dos terceras partes" -> 66.67; "la mitad de la base" -> 50;
   "la totalidad del avalúo" -> 100). Este SÍ varía por aviso en ambos países,
   léelo con cuidado del texto.
+  MAPEO DE FRASES CLAVE para minimo_porcentaje (= "Mínimo para ganarte el bien"):
+  Busca en el texto frases como: "Posturas admisibles", "Postura mínima",
+  "Será postura admisible la que cubra...", "no será inferior a las dos
+  terceras partes del avalúo". El porcentaje o fracción es minimo_porcentaje.
 - "fianza" y "minimo": SOLO si el aviso también imprime el MONTO en dinero ya
   calculado (no el porcentaje) además del porcentaje. Si el aviso solo da el
   porcentaje y no un monto en dinero, deja "fianza" y "minimo" en null --
@@ -103,6 +111,24 @@ Reglas de formato:
   Ejemplo: "19 HEC 4926.62 M2, CORREGIMIENTO Y DISTRITO, GUALACA, CHIRIQUI."
   IMPORTANTE: Este campo es SOLO un resumen breve. La descripción completa va
   en "descripcion_completa".
+- "prevista": CAMPO CRÍTICO para geolocalización (botón de Mapa en la app).
+  Debe ser un texto LIMPIO y preciso que Google Maps pueda interpretar para
+  encontrar la ubicación del inmueble. Constrúyelo extrayendo estos elementos
+  en el orden que aparezcan al inicio de la descripción del bien:
+  1. Área/Medida (Ej: "332 m2", "7 HEC 4926.62 M2")
+  2. Identificador del Inmueble: nombre del edificio, PH, condominio,
+     urbanización (Ej: "PH Princesa y Condesa del Mar", "Lago Emperador")
+  3. Ubicación Política: Corregimiento y Distrito/Provincia
+     (Ej: "Corr: Bella Vista, Dist: Panamá")
+  Ejemplos de resultado esperado:
+  - "332 m2, PH Princesa y Condesa del Mar, Corr: Bella Vista, Dist: Panamá"
+  - "271.61 M2, Lago Emperador, Corr: Juan Demostenes Arosemena, Dist: Arraijan"
+  - "19 HEC 4926.62 M2, Corregimiento y Distrito, Gualaca, Chiriqui"
+  Para Colombia: usa la dirección del inmueble + ciudad + departamento.
+  Ej: "CRA.10 No. 3-59, Espinal, Tolima"
+  REGLAS: Mantén abreviaturas estándar (PH, Corr., Dist., Apt.) porque Google
+  Maps las entiende. NUNCA inventes calles ni nombres de edificios -- si no
+  hay datos suficientes, usa lo que exista sin inventar.
 - Si el texto está borroso, cortado o ambiguo, refleja eso con confianza baja,
   NO adivines el valor con confianza alta.
 - Responde ÚNICAMENTE con el array JSON, sin texto adicional, sin markdown.

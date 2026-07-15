@@ -57,6 +57,7 @@ class Aviso(Base):
     codigo_prensa = Column(String, nullable=True)  # LP/ML/LE/SEJ + fecha periódico + página (ej. "LP-2025-07-28-P23")
     email_observaciones = Column(String, nullable=True)  # correo electrónico extraído de observaciones
     descripcion_completa = Column(Text, nullable=True)  # descripción completa del bien (detalle largo)
+    prevista = Column(Text, nullable=True)  # texto limpio de ubicación para Google Maps (ej. "332 m2, PH Princesa y Condesa del Mar, Corr: Bella Vista, Dist: Panamá")
 
     # Metadatos del proceso
     confianza_promedio = Column(Float, default=0.0)

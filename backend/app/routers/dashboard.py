@@ -156,6 +156,7 @@ def _serializar_aviso(a: Aviso) -> dict:
         "lugar": a.lugar, "proceso": a.proceso,
         "descripcion": a.descripcion,
         "descripcion_completa": a.descripcion_completa,
+        "prevista": a.prevista,
         "finca_matr": a.finca_matr,
         "lote_casa": a.lote_casa, "plano": a.plano, "superficie": a.superficie,
         "categoria": a.categoria, "categoria_codigo": a.categoria_codigo,
