@@ -182,18 +182,37 @@ Si un dato no aparece, usa null."""
         base += """
 
 CONTEXTO PA Panamá -- sección "BUSCAFÁCIL" / judicial de un periódico panameño
-(La Prensa, El Panamá América, etc.). La página típica tiene:
-- Encabezado de sección ("BUSCAFÁCIL", "BIENES RAICES", "VARIOS", etc.)
-- Múltiples columnas con avisos judiciales mezclados con avisos comerciales.
-- Los AVISOS DE REMATE se identifican por frases como:
-  "AVISO DE REMATE", "EDICTO EMPLAZATORIO", "JUZGADO ... CIRCUITO CIVIL",
-  "SUBASTA", "BIEN INMUEBLE", "VALOR DEL TRASPASO", "BASE DEL REMATE",
-  "FIANZA", "POSTURA MÍNIMA", "DOS TERCERAS PARTES", "TRES VECES CONSECUTIVAS".
-- Los avisos de remate SIEMPRE mencionan un JUZGADO (ej. "JUZGADO PRIMERO
-  DE CIRCUITO CIVIL DE CHIRIQUI") y un PROCESO (ej. "EJECUTIVO HIPOTECARIO",
-  "EJECUTIVO FISCAL", "SUCESIÓN INTESTADA").
-- Ignora avisos comerciales (venta de carros, alquiler de locales, etc.).
-- Ignora "EDICTO EMPLAZATORIO" que NO sean de remate (sucesiones, etc.).
+(La Prensa, El Panamá América, La Estrella, Metro Libre, etc.).
+
+=== FILTRO ESTRICTO: QUÉ ES Y QUÉ NO ES UN AVISO DE REMATE ===
+
+Un AVISO DE REMATE (subasta judicial) OBLIGATORIAMENTE debe contener TODOS estos elementos:
+1. Un VALOR BASE o AVALÚO del bien (monto en dinero, ej. "B/. 87,000.00")
+2. Una FIANZA o CONSIGNACIÓN requerida para participar (porcentaje o monto)
+3. Una POSTURA MÍNIMA o monto mínimo para ganar (ej. "dos terceras partes")
+4. Una FECHA de remate/subasta/traspaso (día específico del acto de remate)
+5. Un BIEN a rematar descrito (inmueble, vehículo, etc.)
+
+Si un aviso NO tiene VALOR BASE/AVALÚO + FIANZA + POSTURA MÍNIMA, entonces
+NO ES un aviso de remate. IGNÓRALO completamente.
+
+TIPOS DE AVISO QUE DEBES IGNORAR (NO son remates):
+- Edictos de citación o emplazamiento (solo citan a personas, no venden bienes)
+- Avisos de sucesión intestada (reparto de herencia, no subasta)
+- Notificaciones judiciales generales
+- Avisos de prescripción adquisitiva (reclamo de propiedad, no venta)
+- Avisos comerciales (venta de carros, alquiler, etc.)
+- Avisos de cambio de nombre
+- Edictos que solo dicen "se hace saber" sin mencionar remate/subasta/avalúo
+
+FRASES CLAVE que SÍ identifican un remate real:
+"AVISO DE REMATE", "SUBASTA", "BASE DEL REMATE", "VALOR BASE",
+"AVALÚO", "FIANZA DEL", "POSTURA MÍNIMA", "POSTURAS ADMISIBLES",
+"TRASPASO", "SE REMATARÁ", "ACTO DE REMATE", "DOS TERCERAS PARTES",
+"TRES VECES CONSECUTIVAS".
+
+IMPORTANTE: Si la página tiene 2 remates reales y 6 edictos de otro tipo,
+tu JSON debe tener SOLO 2 objetos, no 8.
 
  Campos específicos para Panamá:
 - "lugar": el JUZGADO que ordena el remate (ej. "JUZGADO PRIMERO DE CIRCUITO

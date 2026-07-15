@@ -168,13 +168,13 @@
   <div class="metrics" id="metricas"></div>
 
   <!-- ULTIMOS PROCESADOS -->
-  <div class="card" id="ultimosProcesadosCard" style="display:none;">
+  <div class="card" id="ultimosProcesadosCard">
     <div class="card-title">
       Ultimos Procesados
       <span class="count" id="countUltimos"></span>
     </div>
-    <div style="font-size:9px; color:var(--gray); margin-bottom:8px;">Avisos del ultimo documento procesado</div>
-    <div id="ultimosProcesados"></div>
+    <div style="font-size:9px; color:var(--gray); margin-bottom:8px;">Avisos del ultimo documento procesado (mas recientes primero)</div>
+    <div id="ultimosProcesados"><div class="empty">Cargando...</div></div>
   </div>
 
   <!-- PENDIENTES -->
@@ -373,25 +373,30 @@ async function monitorear(id, intentos=0){
 
 // Mostrar los ultimos avisos procesados en seccion dedicada
 async function mostrarUltimosProcesados(avisosResumen){
-  if(!avisosResumen || avisosResumen.length === 0){
-    $('ultimosProcesadosCard').style.display = 'none';
-    return;
-  }
-  // Recargar datos completos del historial para tener los objetos completos
   try{
     const r = await fetch(apiUrl('/dashboard/todos'));
     const todos = await r.json();
-    const ids = avisosResumen.map(a => a.id);
-    const recientes = todos.filter(a => ids.includes(a.id));
-    $('ultimosProcesadosCard').style.display = 'block';
+
+    let recientes;
+    if(avisosResumen && avisosResumen.length > 0){
+      // Caso: vinimos del monitoreo con IDs específicos
+      const ids = avisosResumen.map(a => a.id);
+      recientes = todos.filter(a => ids.includes(a.id));
+    } else {
+      // Caso: carga inicial — mostrar los últimos 10 avisos creados
+      recientes = todos.slice(0, 10);
+    }
+
     $('countUltimos').textContent = recientes.length + ' aviso(s)';
     $('ultimosProcesados').innerHTML = recientes.length
       ? recientes.map(x => cardAviso(x, false)).join('')
-      : '<div class="empty">Sin resultados.</div>';
-    // Scroll al card
-    $('ultimosProcesadosCard').scrollIntoView({behavior:'smooth', block:'start'});
+      : '<div class="empty">No hay avisos procesados aun.</div>';
+
+    if(avisosResumen && avisosResumen.length > 0){
+      $('ultimosProcesadosCard').scrollIntoView({behavior:'smooth', block:'start'});
+    }
   }catch(e){
-    $('ultimosProcesadosCard').style.display = 'none';
+    $('ultimosProcesados').innerHTML = '<div class="empty">Error cargando ultimos procesados.</div>';
   }
 }
 
@@ -859,7 +864,7 @@ async function exportarFiltrados(){
 // Cargar todo
 async function cargarTodo(){
   if(!backendOnline) return;
-  await Promise.all([cargarMetricas(),cargarPendientes(),cargarHistorial(),cargarAuditoria()]);
+  await Promise.all([cargarMetricas(),cargarPendientes(),cargarHistorial(),cargarAuditoria(),mostrarUltimosProcesados()]);
   $('ultimaActualizacion').textContent='Actualizado: '+new Date().toLocaleTimeString('es-PA');
 }
 

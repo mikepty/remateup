@@ -181,8 +181,14 @@ def aplicar_reglas(datos: dict) -> dict:
     else:
         datos["categoria_codigo"] = CODIGOS_CATEGORIA.get(categoria_raw)
 
-    if not datos.get("codigo"):
-        datos["codigo"] = _generar_codigo_interno(datos)
+    # SIEMPRE generar código interno (PA64103XXX / CO64104XXX)
+    # Gemini puede extraer un código del periódico (ej. "810") pero nuestro sistema
+    # usa su propio secuencial. El código del periódico va en codigo_fuente si aplica.
+    if datos.get("codigo") and not str(datos["codigo"]).startswith(("PA", "CO")):
+        # Si Gemini extrajo un código del periódico, guardarlo en codigo_fuente
+        if not datos.get("codigo_fuente"):
+            datos["codigo_fuente"] = str(datos["codigo"])
+    datos["codigo"] = _generar_codigo_interno(datos)
 
     # Generar codigo_prensa si no fue extraído directamente
     if not datos.get("codigo_prensa"):
