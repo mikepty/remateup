@@ -21,7 +21,7 @@ from ..config import (
 
 # Campos que el sistema genera/deriva, no que se extraen tal cual del documento.
 # Se excluyen del cálculo de confianza promedio en confidence.py.
-CAMPOS_DERIVADOS = ["codigo", "codigo_ubicacion"]
+CAMPOS_DERIVADOS = ["codigo", "codigo_ubicacion", "codigo_prensa"]
 
 
 def _normalizar(texto) -> str:
@@ -136,6 +136,30 @@ def _calcular_y_validar_valores(datos: dict) -> dict:
     }
 
 
+def _generar_codigo_prensa(datos: dict) -> str | None:
+    """Genera el código de prensa si tenemos suficiente información.
+    Formato: SIGLA-YYYY-MM-DD-PXX
+    Siglas: LP (La Prensa), ML (Metro Libre), LE (La Estrella), SEJ (Colombia).
+    Si no podemos determinar la sigla, usamos la del país por defecto."""
+    pais = datos.get("pais")
+    codigo_fuente = datos.get("codigo_fuente")
+
+    # Si ya hay un codigo_fuente del OCR que parece tener formato de prensa, usarlo
+    if codigo_fuente and any(s in str(codigo_fuente).upper() for s in ["LP", "ML", "LE", "SEJ"]):
+        return codigo_fuente
+
+    # Para Colombia, la sigla es siempre SEJ
+    if pais == 2:
+        sigla = "SEJ"
+    elif pais == 1:
+        # Para Panamá, sin más datos asumimos LP (La Prensa) como default
+        sigla = "LP"
+    else:
+        return None
+
+    return None  # Si no tenemos fecha de periódico ni página, dejar null para completar manual
+
+
 def aplicar_reglas(datos: dict) -> dict:
     """Recibe el dict de datos extraídos y le agrega/corrige campos codificados."""
     datos = dict(datos)  # copia, no mutar el original
@@ -159,6 +183,10 @@ def aplicar_reglas(datos: dict) -> dict:
 
     if not datos.get("codigo"):
         datos["codigo"] = _generar_codigo_interno(datos)
+
+    # Generar codigo_prensa si no fue extraído directamente
+    if not datos.get("codigo_prensa"):
+        datos["codigo_prensa"] = _generar_codigo_prensa(datos)
 
     validacion = _calcular_y_validar_valores(datos)
     datos["fianza"] = validacion["fianza_calculada"]

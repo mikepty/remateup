@@ -54,6 +54,9 @@ class Aviso(Base):
     minimo = Column(String)   # monto calculado = base * minimo_porcentaje/100
     fianza_asumida_por_regla = Column(Boolean, default=False)  # True = Colombia 40% aplicado por regla, no leído del OCR
     codigo_fuente = Column(String, nullable=True)  # periódico/fecha/página de donde salió (ej. "PA10ABRP23")
+    codigo_prensa = Column(String, nullable=True)  # LP/ML/LE/SEJ + fecha periódico + página (ej. "LP-2025-07-28-P23")
+    email_observaciones = Column(String, nullable=True)  # correo electrónico extraído de observaciones
+    descripcion_completa = Column(Text, nullable=True)  # descripción completa del bien (detalle largo)
 
     # Metadatos del proceso
     confianza_promedio = Column(Float, default=0.0)

@@ -289,7 +289,12 @@ async function subirDocumento(){
     const r = await fetch(apiUrl('/documentos/subir'),{method:'POST',body:fd});
     if(!r.ok) throw new Error('HTTP '+r.status);
     const d = await r.json();
-    showStatus('uploadStatus','loading','Documento #'+d.documento_id+' procesando...');
+    const numArchivos = d.archivos_recibidos || 1;
+    if(numArchivos > 1){
+      showStatus('uploadStatus','loading','Documento #'+d.documento_id+' procesando '+numArchivos+' imagenes (superior + inferior)...');
+    } else {
+      showStatus('uploadStatus','loading','Documento #'+d.documento_id+' procesando...');
+    }
     pri.value=''; inf.value='';
     monitorear(d.documento_id);
   }catch(e){ showStatus('uploadStatus','error','Error: '+e.message); }
@@ -323,8 +328,15 @@ async function monitorear(id, intentos=0){
       todosLosAvisos = []; return;
     }
     if(d.estado==='error'){ showStatus('uploadStatus','error','Error en procesamiento.'); return; }
-    showStatus('uploadStatus','loading','Procesando... Refresca en unos segundos.');
-  }catch(e){}
+    // Mostrar estado de procesamiento indicando cuantas imagenes se procesan
+    const totalArchivos = d.total_archivos || 1;
+    let msg = 'Procesando documento #'+id+'...';
+    if(totalArchivos > 1){
+      msg = 'Procesando '+totalArchivos+' imagenes (superior + inferior) del documento #'+id+'...';
+    }
+    showStatus('uploadStatus','loading', msg);
+    setTimeout(()=>monitorear(id, intentos+1), 3000);
+  }catch(e){ setTimeout(()=>monitorear(id, intentos+1), 5000); }
 }
 
 function showStatus(elId,type,msg){
@@ -363,20 +375,28 @@ function cardAviso(a, pendiente){
   let expCorto = a.expediente||'';
   if(expCorto.includes('-')) expCorto = expCorto.split('-')[0];
 
-  const desc = a.descripcion||'Sin descripcion';
-  const descResumen = desc.length > 80 ? desc.substring(0, 80) + '...' : desc;
+  // Portada: solo el resumen corto (campo "descripcion")
+  const descResumen = a.descripcion || 'Sin descripcion';
+
+  // Codigo de prensa (LP/ML/LE/SEJ + fecha + pagina)
+  const codigoPrensa = a.codigo_prensa ? `<span class="badge info">${a.codigo_prensa}</span>` : '';
+
+  // Email de observaciones
+  const emailObs = a.email_observaciones ? `<div style="margin-top:4px;font-size:10px;color:var(--navy);">📧 ${a.email_observaciones}</div>` : '';
 
   return `
     <div class="aviso-card">
       <div class="aviso-header">
         <div style="display:flex;align-items:center;gap:8px;">
           <span class="codigo">${a.codigo||'#'+a.id}</span>
+          ${codigoPrensa}
           ${bEstado}
         </div>
         <div class="meta">${flag(a.pais)} ${fechaPub}</div>
       </div>
       <div class="aviso-body">
-        <div class="desc">Descripcion: ${descResumen}</div>
+        <div class="desc">${descResumen}</div>
+        ${emailObs}
         <div class="valores">
           <div class="valor-box">
             <div class="label">${labelBase(a.pais)}</div>
@@ -409,6 +429,8 @@ function detalleCard(a){
   const falt=(a.campos_faltantes||[]).map(c=>'<span style="background:#fee2e2;color:#991b1b;padding:1px 6px;border-radius:4px;font-size:9px;margin-right:3px;">'+c+'</span>').join('')||'<span style="color:var(--gray)">—</span>';
   // Expediente completo en el detalle
   const expCompleto = a.expediente||'—';
+  // Descripcion completa: usar descripcion_completa si existe, sino descripcion
+  const descCompleta = a.descripcion_completa || a.descripcion || '—';
   return `
     <div class="detalle-grid">
       <div class="campo"><span class="k">Fecha del Remate</span><span class="v">${a.fecha||'—'}</span></div>
@@ -418,9 +440,11 @@ function detalleCard(a){
       <div class="campo"><span class="k">Juzgado</span><span class="v">${a.lugar||'—'}</span></div>
       <div class="campo"><span class="k">Tipo de proceso</span><span class="v">${a.proceso||'—'}</span></div>
       <div class="campo"><span class="k">Expediente</span><span class="v">${expCompleto}</span></div>
+      <div class="campo"><span class="k">Codigo de Prensa</span><span class="v">${a.codigo_prensa||'—'}</span></div>
+      <div class="campo"><span class="k">Email (Observaciones)</span><span class="v">${a.email_observaciones||'—'}</span></div>
     </div>
     <div class="campo-full"><span class="k">Partes</span><div class="v">Demandante: ${a.demandante||'—'}</div><div class="v">Demandado: ${a.demandado||'—'}</div></div>
-    <div class="campo-full"><span class="k">Descripcion completa</span><div class="v" style="line-height:1.5;">${a.descripcion||'—'}</div></div>
+    <div class="campo-full"><span class="k">Descripcion completa del bien</span><div class="v" style="line-height:1.5;">${descCompleta}</div></div>
     <div class="detalle-grid" style="margin-top:10px;">
       <div class="campo"><span class="k">${labelBase(a.pais)}</span><span class="v">${moneda(a.base)}</span></div>
       <div class="campo"><span class="k">Min. participar</span><span class="v">${minimoPart(a)} ${a.fianza_asumida_por_regla?'<span class="badge info">asumida</span>':''}</span></div>
@@ -594,6 +618,10 @@ function abrirEditor(id){
             <option value="esperando_aprobacion" ${a.estado==='esperando_aprobacion'?'selected':''}>Pendiente</option>
             <option value="reemplazado_por_republicacion" ${a.estado==='reemplazado_por_republicacion'?'selected':''}>Reemplazado</option>
           </select>
+          <label style="font-size:10px;color:var(--gray);">Codigo de Prensa</label>
+          <input id="ed_codigo_prensa" value="${a.codigo_prensa||''}" placeholder="LP-2025-07-28-P23" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
+          <label style="font-size:10px;color:var(--gray);">Email (Observaciones)</label>
+          <input id="ed_email_observaciones" value="${a.email_observaciones||''}" placeholder="correo@ejemplo.com" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
         </div>
         <div style="grid-column:1/-1;margin-top:8px;">
           <label style="font-size:10px;color:var(--gray);">Descripcion</label>
@@ -633,6 +661,8 @@ async function guardarEdicion(){
     finca_matr: $('ed_finca_matr').value,
     descripcion: $('ed_descripcion').value,
     estado: $('ed_estado').value,
+    codigo_prensa: $('ed_codigo_prensa').value || null,
+    email_observaciones: $('ed_email_observaciones').value || null,
   };
   try{
     await fetch(apiUrl('/admin/editar_aviso/'+avisoEditando.id),{

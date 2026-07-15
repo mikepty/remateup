@@ -155,6 +155,7 @@ def _serializar_aviso(a: Aviso) -> dict:
         "fecha": a.fecha, "hora": a.hora,
         "lugar": a.lugar, "proceso": a.proceso,
         "descripcion": a.descripcion,
+        "descripcion_completa": a.descripcion_completa,
         "finca_matr": a.finca_matr,
         "lote_casa": a.lote_casa, "plano": a.plano, "superficie": a.superficie,
         "categoria": a.categoria, "categoria_codigo": a.categoria_codigo,
@@ -166,4 +167,7 @@ def _serializar_aviso(a: Aviso) -> dict:
         "campos_faltantes": json.loads(a.campos_faltantes_json) if a.campos_faltantes_json else [],
         "confianza_promedio": a.confianza_promedio,
         "tipo_validacion": a.tipo_validacion, "creado_en": a.creado_en,
+        "codigo_prensa": a.codigo_prensa,
+        "email_observaciones": a.email_observaciones,
+        "codigo_fuente": a.codigo_fuente,
     }

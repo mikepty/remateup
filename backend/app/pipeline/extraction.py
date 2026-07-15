@@ -13,9 +13,10 @@ from . import pdf_utils
 
 CAMPOS = [
     "pais", "codigo", "fecha", "hora", "proceso", "expediente", "lugar", "categoria",
-    "demandante", "demandado", "lote_casa", "descripcion",
+    "demandante", "demandado", "lote_casa", "descripcion", "descripcion_completa",
     "superficie", "finca_matr", "codigo_ubicacion", "provincia", "plano", "base",
     "fianza_porcentaje", "minimo_porcentaje", "fianza", "minimo", "codigo_fuente",
+    "codigo_prensa", "email_observaciones",
 ]
 
 CATEGORIAS_VALIDAS = ["CASA", "APARTAMENTO", "TERRENO", "VEHICULO", "MISCELANEO"]
@@ -76,14 +77,32 @@ Reglas de formato:
   calculado (no el porcentaje) además del porcentaje. Si el aviso solo da el
   porcentaje y no un monto en dinero, deja "fianza" y "minimo" en null --
   nuestro sistema los calcula automáticamente desde base + porcentaje.
-- "descripcion_completa": la DESCRIPCIÓN COMPLETA del bien tal como aparece
-  en el documento (dirección detallada, metros, referencias, todo el texto).
-- "descripcion": RESUMEN corto (1-2 líneas) con los datos clave para la
-  tarjeta. Formato: "[Superficie], [Tipo], [Dirección resumida], [Ubicación]."
-  Ejemplo: "19 HEC 4926.62 M2, CORREGIMIENTO Y DISTRITO, GUALACA, CHIRIQUI."
 - "codigo_fuente": si ves visible en la imagen algún código de identificación
   de la publicación, edición o página del periódico, inclúyelo aquí. Si no es
   visible, usa null (no es un campo crítico, se puede completar manualmente).
+- "codigo_prensa": código de prensa que identifica la fuente del aviso. Se
+  construye así: SIGLA + fecha del periódico + número de página. Siglas:
+    LP = La Prensa (Panamá)
+    ML = Metro Libre (Panamá)
+    LE = La Estrella (Panamá)
+    SEJ = Colombia (SEJURE/periódicos colombianos)
+  Formato: "SIGLA-YYYY-MM-DD-PXX" donde XX es el número de página.
+  Ejemplo: "LP-2025-07-28-P23", "SEJ-2025-08-17-P5".
+  Si puedes identificar el periódico (por logotipo, encabezado, nombre visible),
+  la fecha de publicación y la página, construye el código. Si no puedes
+  determinar alguno de estos datos, usa null.
+- "email_observaciones": si en el texto del aviso, especialmente en la sección
+  de observaciones, notas, o datos de contacto, aparece una dirección de correo
+  electrónico (email), extráelo aquí. Busca patrones como "nombre@dominio.com".
+  Si no hay email visible, usa null.
+- "descripcion_completa": la DESCRIPCIÓN COMPLETA del bien tal como aparece
+  en el documento (dirección detallada, metros, referencias, linderos, todo el
+  texto descriptivo sin omitir nada). Esta es la versión larga y completa.
+- "descripcion": RESUMEN corto (1-2 líneas máximo) con los datos clave para la
+  tarjeta/portada. Formato: "[Superficie], [Tipo], [Dirección resumida], [Ubicación]."
+  Ejemplo: "19 HEC 4926.62 M2, CORREGIMIENTO Y DISTRITO, GUALACA, CHIRIQUI."
+  IMPORTANTE: Este campo es SOLO un resumen breve. La descripción completa va
+  en "descripcion_completa".
 - Si el texto está borroso, cortado o ambiguo, refleja eso con confianza baja,
   NO adivines el valor con confianza alta.
 - Responde ÚNICAMENTE con el array JSON, sin texto adicional, sin markdown.
