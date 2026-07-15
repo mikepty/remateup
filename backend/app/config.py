@@ -9,7 +9,7 @@ load_dotenv(BASE_DIR / ".env")  # carga variables desde backend/.env si existe
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = "gemini-2.5-flash"
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-CLAUDE_MODEL = "claude-3-5-sonnet-20241022"
+CLAUDE_MODEL = "claude-3-5-sonnet-latest"
 
 # --- Base de datos ---
 DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{BASE_DIR}/data/remateup.db")
