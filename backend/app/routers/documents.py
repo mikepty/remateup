@@ -145,3 +145,21 @@ def obtener_documento(documento_id: int, db: Session = Depends(get_db)):
         "avisos": [{"id": a.id, "estado": a.estado, "confianza_promedio": a.confianza_promedio,
                     "expediente": a.expediente} for a in doc.avisos],
     }
+
+
+@router.post("/{documento_id}/reintentar")
+async def reintentar_documento(
+    documento_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Reintenta procesar un documento que falló."""
+    doc = db.query(Documento).get(documento_id)
+    if not doc:
+        raise HTTPException(404, "Documento no encontrado")
+    if doc.estado != "error":
+        raise HTTPException(400, "Solo se pueden reintentar documentos con estado 'error'")
+    doc.estado = "recibido"
+    db.commit()
+    background_tasks.add_task(_procesar_en_background, doc.id)
+    return {"documento_id": doc.id, "estado": "reintentando"}

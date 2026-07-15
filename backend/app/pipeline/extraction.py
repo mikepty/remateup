@@ -321,15 +321,17 @@ def _extraer_una_llamada(archivo_paths: list[str], pais: str = "PA", intento: in
         )
     except Exception as e:
         error_str = str(e).lower()
-        # Si es rate limit o quota exceeded, reintentar con espera
-        if ("429" in error_str or "quota" in error_str or "rate" in error_str or "exceeded" in error_str):
-            if intento < 3:
-                wait_time = 30 * (intento + 1)  # 30s, 60s, 90s
-                print(f"[extraction] Rate limit alcanzado. Reintento {intento+1}/3, esperando {wait_time}s...")
+        # Si es rate limit, quota exceeded, o servicio no disponible, reintentar con espera
+        if ("429" in error_str or "quota" in error_str or "rate" in error_str 
+            or "exceeded" in error_str or "503" in error_str or "unavailable" in error_str
+            or "high demand" in error_str or "overloaded" in error_str):
+            if intento < 4:
+                wait_time = 30 * (intento + 1)  # 30s, 60s, 90s, 120s
+                print(f"[extraction] Servicio no disponible/rate limit. Reintento {intento+1}/4, esperando {wait_time}s...")
                 time.sleep(wait_time)
                 return _extraer_una_llamada(archivo_paths, pais, intento + 1)
             else:
-                print(f"[extraction] Rate limit persistente tras 3 reintentos.")
+                print(f"[extraction] Error persistente tras 4 reintentos.")
                 raise
         raise
 

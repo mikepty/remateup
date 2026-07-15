@@ -355,7 +355,10 @@ async function monitorear(id, intentos=0){
       mostrarUltimosProcesados(d.avisos);
       return;
     }
-    if(d.estado==='error'){ showStatus('uploadStatus','error','Error en procesamiento.'); return; }
+    if(d.estado==='error'){ 
+      showStatus('uploadStatus','error','Error en procesamiento. <button class="btn btn-warning" style="margin-left:8px;padding:4px 12px;" onclick="reintentarDocumento('+id+')">Reintentar</button>'); 
+      return; 
+    }
     // Mostrar estado de procesamiento indicando cuantas imagenes se procesan
     const totalArchivos = d.total_archivos || 1;
     let msg = 'Procesando documento #'+id+'...';
@@ -393,6 +396,16 @@ async function mostrarUltimosProcesados(avisosResumen){
 
 function showStatus(elId,type,msg){
   $(elId).innerHTML='<div class="status '+type+'">'+msg+'</div>';
+}
+
+async function reintentarDocumento(docId){
+  showStatus('uploadStatus','loading','Reintentando documento #'+docId+'...');
+  try{
+    const r = await fetch(apiUrl('/documentos/'+docId+'/reintentar'),{method:'POST'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    showStatus('uploadStatus','loading','Reintentando procesamiento del documento #'+docId+'...');
+    monitorear(docId);
+  }catch(e){ showStatus('uploadStatus','error','Error al reintentar: '+e.message); }
 }
 
 // Metrics
