@@ -135,28 +135,48 @@ Reglas de formato:
 {aprendizaje}"""
 
     if multiples_imagenes:
-        base += """\n\nIMPORTANTE sobre las imágenes adjuntas: son DOS (o más) fotos de la
-MISMA página de periódico, tomadas en partes porque la página es muy larga
-para caber en una sola foto legible. Las imágenes están en orden: la primera
-es la mitad SUPERIOR de la página, la siguiente es la mitad INFERIOR
-(continúa exactamente donde termina la primera).
+        base += """\n\n=== REGLA DE ORO: PROCESAMIENTO DE PÁGINA COMPLETA ===
 
- Las imágenes muestran el texto en formato de COLUMNAS verticales (como un
-periódico tradicional). Cada columna contiene múltiples avisos de remate
-apilados verticalmente. Para leer correctamente:
-1. Primero identifica todas las COLUMNAS visibles en cada imagen.
-2. Lee cada columna de ARRIBA A BAJO, completando una columna antes de pasar
+Se te proporcionan exactamente DOS imágenes que corresponden a la MISMA página
+física de un periódico de remates judiciales:
+- La PRIMERA imagen (image_superior) = mitad SUPERIOR de la página.
+- La SEGUNDA imagen (image_inferior) = mitad INFERIOR de la página.
+
+**NO analices estas imágenes como elementos individuales ni generes respuestas
+independientes para cada una.** Debes tratarlas como UN ÚNICO LIENZO CONTINUO
+de arriba a abajo. Muchos avisos de remate comienzan en la mitad superior y
+TERMINAN en la mitad inferior. Tu tarea principal es FUSIONAR y dar continuidad
+al texto donde se corta entre ambas imágenes para evitar fragmentación.
+
+Si en la página completa solo hay, por ejemplo, 2 avisos de remate reales que
+abarcan ambas mitades, tu salida JSON debe contener estrictamente 2 objetos,
+NO MÁS. Evita crear registros "fantasmas" o duplicados a partir de fragmentos
+sueltos de texto.
+
+INSTRUCCIONES DE LECTURA:
+1. Las imágenes muestran texto en formato de COLUMNAS verticales (periódico).
+2. Lee cada columna de ARRIBA A ABAJO, completando una columna antes de pasar
    a la siguiente.
-3. Un aviso de remate puede empezar en la imagen superior y continuar en la
-   inferior -- trátalas como una sola página continua.
+3. Un aviso de remate puede EMPEZAR en la imagen superior y CONTINUAR en la
+   inferior -- FUSIÓNALO en un solo objeto JSON.
 4. Busca patrones como: "AVISO DE REMATE", "EDICTO EMPLAZATORIO", "JUZGADO",
    "EXPEDIENTE", "DEMANDANTE", "DEMANDADO", "VALOR BASE", "BIEN A REMATAR",
    "AVALÚO", "FIANZA", "POSTURA MÍNIMA", "TRES (3) VECES CONSECUTIVAS".
-5. NO ignores avisos por estar parcialmente cortados entre imágenes -- si el
-   encabezado está en una y el cuerpo en otra, combínalos en un solo aviso.
+5. NO ignores avisos por estar parcialmente cortados entre imágenes.
 6. Procesa TODAS las columnas y TODOS los avisos visibles en ambas imágenes.
-   La página típica de periódico tiene entre 4 y 8 columnas con varios avisos
-   cada una -- espero encontrar MÚLTIPLES avisos, no solo uno."""
+
+RECONSTRUCCIÓN DEL TEXTO (descripcion_completa):
+- Une COHERENTEMENTE el texto que se corta entre la parte superior e inferior.
+- El campo "descripcion_completa" debe ser el texto OCR ÍNTEGRO fusionado de
+  forma lógica, corregido ortográficamente, sin recortes ni duplicados.
+
+DATOS DE CONTROL (Crucial para evitar duplicados en la plataforma):
+- "finca_matr": Número de finca (Panamá) o matrícula inmobiliaria (Colombia).
+- "codigo_ubicacion": Código catastral o de registro.
+- "plano": Número de plano aprobado o inscrito referenciado.
+- "lugar": Juzgado que ordena el remate (suele estar al inicio del edicto o
+  al final junto a las firmas).
+Si un dato no aparece, usa null."""
 
     if pais == "PA":
         base += """
