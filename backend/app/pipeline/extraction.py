@@ -382,7 +382,7 @@ def _extraer_una_llamada(archivo_paths: list[str], pais: str = "PA", intento: in
         text = ""
         with client.messages.stream(
             model=CLAUDE_MODEL,
-            max_tokens=65536,
+            max_tokens=16384,
             messages=[{"role": "user", "content": content}],
         ) as stream:
             for chunk in stream.text_stream:
