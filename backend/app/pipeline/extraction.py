@@ -3,6 +3,7 @@ Agente de Extracción — usa Claude (Anthropic) para leer imágenes/PDFs de
 avisos de remate judicial y extraer datos estructurados.
 """
 import json
+import base64
 import pathlib
 from ..config import ANTHROPIC_API_KEY, CLAUDE_MODEL
 from . import pdf_utils
@@ -17,420 +18,149 @@ CAMPOS = [
 
 CATEGORIAS_VALIDAS = ["CASA", "APARTAMENTO", "TERRENO", "VEHICULO", "MISCELANEO"]
 
-
-def _cargar_aprendizaje(pais: int = None) -> str:
-    """Carga correcciones del cliente para mejorar futuras extracciones."""
-    # Deshabilitado temporalmente para evitar errores en la BD
-    return ""
-
+SYSTEM_PROMPT = "Responde SOLO con un array JSON válido. Sin texto, sin explicaciones, sin markdown."
 
 def _construir_prompt(pais: str, multiples_imagenes: bool = False) -> str:
-    # Cargar aprendizaje del cliente
-    pais_code = 1 if pais == "PA" else 2 if pais == "CO" else None
-    aprendizaje = _cargar_aprendizaje(pais_code)
+    campos_str = ", ".join(CAMPOS)
 
-    base = f"""Eres un asistente experto en extracción de datos de avisos de remate judicial.
-Analiza el/los documento(s) adjunto(s) y extrae la información en formato JSON.
+    prompt = f"""Extrae SOLO avisos de REMATE JUDICIAL de las imágenes. Un remate DEBE tener: valor base/avalúo + fianza + postura mínima + fecha + bien descrito. Ignora edictos, citaciones y otros avisos que NO sean subastas.
 
-=== REGLA ANTI-ALUCINACIÓN (MÁXIMA PRIORIDAD) ===
-TODA la información que devuelvas DEBE estar VISIBLE y LEGIBLE en las imágenes
-proporcionadas. NUNCA inventes, supongas, completes ni imagines datos que no
-puedas leer directamente del texto en las imágenes.
+SOLO transcribe datos VISIBLES en la imagen. Si no puedes leer un dato, usa null. NUNCA inventes.
 
-PROBLEMA CONOCIDO: En pruebas anteriores, generaste datos INVENTADOS que no
-existían en las imágenes (nombres de personas, montos, direcciones fabricados).
-Esto es INACEPTABLE. El cliente verificó que los datos extraídos NO correspondían
-con el texto real del periódico.
+Devuelve un array JSON. Cada objeto tiene:
+1. "datos": objeto con claves: {campos_str} (null si no aparece)
+2. "confianza": objeto con las mismas claves, valor 0-1
 
-REGLAS ESTRICTAS:
-1. Lee el texto CARÁCTER POR CARÁCTER de las imágenes. No "recuerdes" ni
-   "completes" información de tu entrenamiento.
-2. Si un nombre dice "KRISTEL CASTILLO" en la imagen, escribe exactamente
-   "KRISTEL CASTILLO", no otro nombre que te parezca más probable.
-3. Si un monto dice "B/. 12,000.00" en la imagen, escribe exactamente 12000.00.
-4. Si NO puedes leer un dato claramente de la imagen, pon null. NUNCA inventes.
-5. Si no encuentras NINGÚN aviso de remate legible en las imágenes, devuelve: []
-6. Cada dato que incluyas debe ser TRANSCRIPCIÓN DIRECTA del texto visible.
-
-VERIFICACIÓN FINAL: Antes de responder, para CADA aviso revisa:
-- ¿El nombre del demandante está ESCRITO en la imagen? Si no -> null
-- ¿El monto de la base está IMPRESO en la imagen? Si no -> null  
-- ¿La dirección está VISIBLE en la imagen? Si no -> null
-Si no puedes confirmar esto para todos los campos clave, NO incluyas ese aviso.
-=== FIN REGLA ANTI-ALUCINACIÓN ===
-
-Devuelve un array de objetos. Cada objeto representa UN remate a subir, según
-estas reglas para agrupar o separar bienes (MUY IMPORTANTE, definidas por el cliente):
-
-- ESCENARIO A -- varios bienes bajo UN SOLO valor base/avalúo: son parte del
-  MISMO remate. NO los separes en objetos distintos. Ponlos todos juntos,
-  descritos uno por uno, dentro de un único campo "descripcion" del mismo objeto.
-- ESCENARIO B -- varios bienes, cada uno con su PROPIO valor base/avalúo
-  independiente: sí van en objetos separados, uno por bien, aunque compartan
-  expediente, demandante y demandado.
-La señal para decidir cuál escenario aplica es: ¿hay un solo monto de base
-para todos los bienes, o cada bien tiene su propio monto? Si tienes dudas
-genuinas, trátalos como Escenario B (separados) y dilo con confianza baja.
-
-Cada objeto debe tener DOS partes:
-1. "datos": un objeto con EXACTAMENTE estas claves: {", ".join(CAMPOS)}
-   (usa null si el dato no aparece en el documento, NUNCA inventes valores)
-2. "confianza": un objeto con la MISMA estructura de claves, valor entre 0 y 1.
-
-Reglas de formato:
-- "pais": 1 para Panamá, 2 para Colombia.
-- "fecha" en formato YYYY-MM-DD. "hora" en formato HH:MM.
-- "categoria": debe ser EXACTAMENTE una de estas 5 palabras: {", ".join(CATEGORIAS_VALIDAS)}.
-  CASA/APARTAMENTO/TERRENO son inmuebles obvios. VEHICULO es cualquier carro,
-  moto, camión. MISCELANEO es todo lo demás que NO sea inmueble ni vehículo:
-  muebles, joyas, materia prima, maquinaria, depósitos, equipos, etc.
-- "base": el valor de avalúo/base, como número plano SIN símbolo de moneda,
-  SIN comas ni puntos de miles. Ejemplo correcto: 39500.00
-- "fianza_porcentaje": el PORCENTAJE de fianza que el aviso indica que hay que
-  depositar para participar (normalmente aparece explícito en el texto, ej.
-  "fianza del 10%" -> 10). Panamá usa 10, 20 o 25 (varía por aviso, leerlo del
-  texto). Colombia es SIEMPRE 40 -- si no lo ves explícito en el texto de
-  Colombia, igual responde 40 (es un valor fijo conocido).
-  MAPEO DE FRASES CLAVE para fianza_porcentaje (= "Mínimo para participar"):
-  Busca en el texto frases como: "Se requiere consignar a la secretaría del
-  juzgado...", "Para hacer postura se requiere consignar...", "Consignación
-  previa", "fianza del X%". El porcentaje que aparezca es fianza_porcentaje.
-- "minimo_porcentaje": el PORCENTAJE mínimo de la base con el que se puede
-  ganar el remate, según lo que ordene el juzgado en el texto (ej. "no será
-  inferior a las dos terceras partes" -> 66.67; "la mitad de la base" -> 50;
-  "la totalidad del avalúo" -> 100). Este SÍ varía por aviso en ambos países,
-  léelo con cuidado del texto.
-  MAPEO DE FRASES CLAVE para minimo_porcentaje (= "Mínimo para ganarte el bien"):
-  Busca en el texto frases como: "Posturas admisibles", "Postura mínima",
-  "Será postura admisible la que cubra...", "no será inferior a las dos
-  terceras partes del avalúo". El porcentaje o fracción es minimo_porcentaje.
-- "fianza" y "minimo": SOLO si el aviso también imprime el MONTO en dinero ya
-  calculado (no el porcentaje) además del porcentaje. Si el aviso solo da el
-  porcentaje y no un monto en dinero, deja "fianza" y "minimo" en null --
-  nuestro sistema los calcula automáticamente desde base + porcentaje.
-- "codigo_fuente": si ves visible en la imagen algún código de identificación
-  de la publicación, edición o página del periódico, inclúyelo aquí. Si no es
-  visible, usa null (no es un campo crítico, se puede completar manualmente).
-- "codigo_prensa": código de prensa que identifica la fuente del aviso. Se
-  construye así: SIGLA + fecha del periódico + número de página. Siglas:
-    LP = La Prensa (Panamá)
-    ML = Metro Libre (Panamá)
-    LE = La Estrella (Panamá)
-    SEJ = Colombia (SEJURE/periódicos colombianos)
-  Formato: "SIGLA-YYYY-MM-DD-PXX" donde XX es el número de página.
-  Ejemplo: "LP-2025-07-28-P23", "SEJ-2025-08-17-P5".
-  Si puedes identificar el periódico (por logotipo, encabezado, nombre visible),
-  la fecha de publicación y la página, construye el código. Si no puedes
-  determinar alguno de estos datos, usa null.
-- "email_observaciones": si en el texto del aviso, especialmente en la sección
-  de observaciones, notas, o datos de contacto, aparece una dirección de correo
-  electrónico (email), extráelo aquí. Busca patrones como "nombre@dominio.com".
-  Si no hay email visible, usa null.
-- "descripcion_completa": la DESCRIPCIÓN COMPLETA del bien tal como aparece
-  en el documento (dirección detallada, metros, referencias, linderos, todo el
-  texto descriptivo sin omitir nada). Esta es la versión larga y completa.
-- "descripcion": RESUMEN corto (1-2 líneas máximo) con los datos clave para la
-  tarjeta/portada. Formato: "[Superficie], [Tipo], [Dirección resumida], [Ubicación]."
-  Ejemplo: "19 HEC 4926.62 M2, CORREGIMIENTO Y DISTRITO, GUALACA, CHIRIQUI."
-  IMPORTANTE: Este campo es SOLO un resumen breve. La descripción completa va
-  en "descripcion_completa".
-- "prevista": CAMPO CRÍTICO para geolocalización (botón de Mapa en la app).
-  Debe ser un texto LIMPIO y preciso que Google Maps pueda interpretar para
-  encontrar la ubicación del inmueble. Constrúyelo extrayendo estos elementos
-  en el orden que aparezcan al inicio de la descripción del bien:
-  1. Área/Medida (Ej: "332 m2", "7 HEC 4926.62 M2")
-  2. Identificador del Inmueble: nombre del edificio, PH, condominio,
-     urbanización (Ej: "PH Princesa y Condesa del Mar", "Lago Emperador")
-  3. Ubicación Política: Corregimiento y Distrito/Provincia
-     (Ej: "Corr: Bella Vista, Dist: Panamá")
-  Ejemplos de resultado esperado:
-  - "332 m2, PH Princesa y Condesa del Mar, Corr: Bella Vista, Dist: Panamá"
-  - "271.61 M2, Lago Emperador, Corr: Juan Demostenes Arosemena, Dist: Arraijan"
-  - "19 HEC 4926.62 M2, Corregimiento y Distrito, Gualaca, Chiriqui"
-  Para Colombia: usa la dirección del inmueble + ciudad + departamento.
-  Ej: "CRA.10 No. 3-59, Espinal, Tolima"
-  REGLAS: Mantén abreviaturas estándar (PH, Corr., Dist., Apt.) porque Google
-  Maps las entiende. NUNCA inventes calles ni nombres de edificios -- si no
-  hay datos suficientes, usa lo que exista sin inventar.
-- Si el texto está borroso, cortado o ambiguo, refleja eso con confianza baja,
-  NO adivines el valor con confianza alta.
-- Responde ÚNICAMENTE con el array JSON, sin texto adicional, sin markdown.
-{aprendizaje}"""
+Formato:
+- pais: {"1 (Panamá)" if pais == "PA" else "2 (Colombia)"}
+- fecha: YYYY-MM-DD, hora: HH:MM
+- categoria: CASA, APARTAMENTO, TERRENO, VEHICULO o MISCELANEO
+- base: número sin símbolo ni comas (ej: 39500.00)
+- fianza_porcentaje: % para participar (PA: 10/20/25, CO: siempre 40)
+- minimo_porcentaje: % postura mínima (66.67=dos terceras, 50=mitad, 100=total)
+- fianza/minimo: solo si el aviso imprime el monto calculado, sino null
+- descripcion: resumen 1-2 líneas "[Superficie], [Tipo], [Ubicación]"
+- descripcion_completa: texto íntegro del bien sin omitir nada
+- prevista: texto para Google Maps "[Área], [Nombre PH/Urbanización], Corr: [X], Dist: [Y]"
+- codigo_prensa: SIGLA-YYYY-MM-DD-PXX (LP/ML/LE para PA, SEJ para CO) o null
+- email_observaciones: email si aparece en el texto, sino null"""
 
     if multiples_imagenes:
-        base += """\n\n=== REGLA DE ORO: PROCESAMIENTO DE PÁGINA COMPLETA ===
+        prompt += """
 
-Se te proporcionan exactamente DOS imágenes que corresponden a la MISMA página
-física de un periódico de remates judiciales:
-- La PRIMERA imagen (image_superior) = mitad SUPERIOR de la página.
-- La SEGUNDA imagen (image_inferior) = mitad INFERIOR de la página.
-
-**NO analices estas imágenes como elementos individuales ni generes respuestas
-independientes para cada una.** Debes tratarlas como UN ÚNICO LIENZO CONTINUO
-de arriba a abajo. Muchos avisos de remate comienzan en la mitad superior y
-TERMINAN en la mitad inferior. Tu tarea principal es FUSIONAR y dar continuidad
-al texto donde se corta entre ambas imágenes para evitar fragmentación.
-
-RECUERDA: SOLO extrae información que puedas LEER DIRECTAMENTE del texto
-visible en estas imágenes. Si el texto es borroso, pequeño o ilegible, devuelve
-[] en vez de inventar datos. NUNCA fabriques nombres, montos o direcciones.
-
-Si en la página completa solo hay 2 avisos de remate reales, tu salida JSON
-debe contener estrictamente 2 objetos. Si hay 0 remates legibles, devuelve [].
-
-INSTRUCCIONES DE LECTURA:
-1. Las imágenes muestran texto en formato de COLUMNAS verticales (periódico).
-2. Lee cada columna de ARRIBA A ABAJO, completando una columna antes de pasar
-   a la siguiente.
-3. Un aviso de remate puede EMPEZAR en la imagen superior y CONTINUAR en la
-   inferior -- FUSIÓNALO en un solo objeto JSON.
-4. Busca patrones como: "AVISO DE REMATE", "EDICTO EMPLAZATORIO", "JUZGADO",
-   "EXPEDIENTE", "DEMANDANTE", "DEMANDADO", "VALOR BASE", "BIEN A REMATAR",
-   "AVALÚO", "FIANZA", "POSTURA MÍNIMA", "TRES (3) VECES CONSECUTIVAS".
-5. NO ignores avisos por estar parcialmente cortados entre imágenes.
-6. Procesa TODAS las columnas y TODOS los avisos visibles en ambas imágenes.
-
-RECONSTRUCCIÓN DEL TEXTO (descripcion_completa):
-- Une COHERENTEMENTE el texto que se corta entre la parte superior e inferior.
-- El campo "descripcion_completa" debe ser el texto OCR ÍNTEGRO fusionado de
-  forma lógica, corregido ortográficamente, sin recortes ni duplicados.
-
-DATOS DE CONTROL (Crucial para evitar duplicados en la plataforma):
-- "finca_matr": Número de finca (Panamá) o matrícula inmobiliaria (Colombia).
-- "codigo_ubicacion": Código catastral o de registro.
-- "plano": Número de plano aprobado o inscrito referenciado.
-- "lugar": Juzgado que ordena el remate (suele estar al inicio del edicto o
-  al final junto a las firmas).
-Si un dato no aparece, usa null."""
+Las 2 imágenes son la MISMA página (superior + inferior). Trátalas como un lienzo continuo. Fusiona avisos que empiezan arriba y terminan abajo."""
 
     if pais == "PA":
-        base += """
+        prompt += """
 
-CONTEXTO PA Panamá -- sección "BUSCAFÁCIL" / judicial de un periódico panameño
-(La Prensa, El Panamá América, La Estrella, Metro Libre, etc.).
-
-=== FILTRO ESTRICTO: QUÉ ES Y QUÉ NO ES UN AVISO DE REMATE ===
-
-Un AVISO DE REMATE (subasta judicial) OBLIGATORIAMENTE debe contener TODOS estos elementos:
-1. Un VALOR BASE o AVALÚO del bien (monto en dinero, ej. "B/. 87,000.00")
-2. Una FIANZA o CONSIGNACIÓN requerida para participar (porcentaje o monto)
-3. Una POSTURA MÍNIMA o monto mínimo para ganar (ej. "dos terceras partes")
-4. Una FECHA de remate/subasta/traspaso (día específico del acto de remate)
-5. Un BIEN a rematar descrito (inmueble, vehículo, etc.)
-
-Si un aviso NO tiene VALOR BASE/AVALÚO + FIANZA + POSTURA MÍNIMA, entonces
-NO ES un aviso de remate. IGNÓRALO completamente.
-
-TIPOS DE AVISO QUE DEBES IGNORAR (NO son remates):
-- Edictos de citación o emplazamiento (solo citan a personas, no venden bienes)
-- Avisos de sucesión intestada (reparto de herencia, no subasta)
-- Notificaciones judiciales generales
-- Avisos de prescripción adquisitiva (reclamo de propiedad, no venta)
-- Avisos comerciales (venta de carros, alquiler, etc.)
-- Avisos de cambio de nombre
-- Edictos que solo dicen "se hace saber" sin mencionar remate/subasta/avalúo
-
-FRASES CLAVE que SÍ identifican un remate real:
-"AVISO DE REMATE", "SUBASTA", "BASE DEL REMATE", "VALOR BASE",
-"AVALÚO", "FIANZA DEL", "POSTURA MÍNIMA", "POSTURAS ADMISIBLES",
-"TRASPASO", "SE REMATARÁ", "ACTO DE REMATE", "DOS TERCERAS PARTES",
-"TRES VECES CONSECUTIVAS".
-
-IMPORTANTE: Si la página tiene 2 remates reales y 6 edictos de otro tipo,
-tu JSON debe tener SOLO 2 objetos, no 8.
-
- Campos específicos para Panamá:
-- "lugar": el JUZGADO que ordena el remate (ej. "JUZGADO PRIMERO DE CIRCUITO
-  CIVIL DE CHIRIQUI").
-- "provincia": la PROVINCIA de Panamá donde está el bien (Bocas del Toro,
-  Coclé, Colón, Chiriquí, Darién, Herrera, Los Santos, Panamá, Panamá Oeste,
-  Veraguas). A veces viene en la dirección del inmueble.
-- "descripcion": RESUMEN corto del bien como aparece en la app RemateHoy.
-  Formato: "[Superficie], [Tipo propiedad], CORR: [Corregimiento], DIST: [Distrito], [Provincia]."
-  Ejemplos:
-  - "19 HEC 4926.62 M2, CORREGIMIENTO Y DISTRITO, GUALACA, CHIRIQUI."
-  - "332 M2, PH PRINCESA Y CONDESA DEL MAR, CORR: BELLA VISTA, DIST: PANAMA."
-  - "271.61 M2, LAGO EMPERADOR, CORR: JUAN DEMOSTENES AROSEMENA, DIST: ARRAIJAN."
-  NO copies el texto completo del periódico -- resume en 1-2 líneas con los datos clave.
-- "finca_matr": el número de FOLIO REAL / FINCA si aparece.
-- "base": el monto del avalúo o valor base (ej. "$395,000.00" -> 395000.00).
-- "fianza_porcentaje": el porcentaje de fianza (10, 20 o 25).
-- "minimo_porcentaje": 66.67 (dos terceras partes), 50 (la mitad) o 100."""
+Contexto: periódico panameño, sección judicial. Solo extrae REMATES (tienen "AVISO DE REMATE", "BASE", "FIANZA", "POSTURA MÍNIMA"). Ignora todo lo demás."""
     else:
-        base += """
+        prompt += """
 
-CONTEXTO CO Colombia -- tabla de remates judiciales de Colombia, en formato
-imagen dentro de un PDF o fotografía de periódico. La página típica tiene:
-- Múltiples columnas con avisos de remate en formato tabular.
-- Cada aviso tiene: juzgado, expediente, demandante, demandado, dirección
-  del inmueble, avalúo, porcentaje mínimo, categoría.
-- Los avisos SIEMPRE mencionan un JUZGADO (ej. "1 C.C ESPINAL T.",
-  "19 C.C. BOGOTA") y un NÚMERO DE EXPEDIENTE.
+Contexto: PDF de remates Colombia. Cada aviso tiene juzgado, expediente, avalúo, porcentaje mínimo. fianza_porcentaje siempre 40."""
 
- Campos específicos para Colombia:
-- "lugar": el JUZGADO que emite el aviso, casi siempre abreviado:
-  "19 C.C. BOGOTA" (Juzgado 19 Circuito Civil de Bogotá),
-  "3 C.C. PEREIRA" (Juzgado 3 Circuito Civil de Pereira).
-  Busca patrón: número + "C.C." + ciudad.
-- "provincia" (departamento): NO aparece como campo separado. Está INCRUSTADO
-  al final de la dirección/descripción. Ejemplo:
-  "CRA.10 No. 3-59, ESPINAL, TOLIMA" -> departamento = TOLIMA.
-  Departamentos: Amazonas, Antioquia, Arauca, Atlántico, Bogotá, Bolívar,
-  Boyacá, Caldas, Caquetá, Casanare, Cauca, Cesar, Chocó, Córdoba,
-  Cundinamarca, Guainía, Guaviare, Huila, La Guajira, Magdalena, Meta,
-  Nariño, Norte de Santander, Putumayo, Quindío, Risaralda, San Andrés y
-  Providencia, Santander, Sucre, Tolima, Valle del Cauca, Vaupés, Vichada.
-- "minimo_porcentaje": el juzgado SIEMPRE lo indica. Busca "X% del avalúo",
-  "no será inferior a...", "postura mínima de...". Opciones comunes: 70%, 50%.
-- "fianza_porcentaje": SIEMPRE 40% (fijo por ley en Colombia).
-- "base": el monto del avalúo (ej. "$786,100,000" -> 786100000.00)."""
-    return base
+    return prompt
 
 
-def _parsear_json_con_recuperacion(texto: str) -> list[dict]:
-    """
-    Intenta parsear el JSON normal. Si la respuesta viene cortada, rescata
-    todos los objetos COMPLETOS que sí llegaron bien.
-    """
+def _parsear_json(texto: str) -> list[dict]:
+    """Parsea JSON con recuperación de respuestas truncadas."""
     try:
         return json.loads(texto)
     except json.JSONDecodeError:
         pass
 
+    # Intentar recuperar JSON truncado
     ultimo_cierre = texto.rfind("}")
     if ultimo_cierre == -1:
-        raise ValueError("La respuesta del modelo no contiene ningún objeto JSON completo.")
+        raise ValueError(f"Sin JSON válido en respuesta. Primeros 200 chars: {texto[:200]}")
 
     texto_recortado = texto[:ultimo_cierre + 1] + "]"
     try:
         resultado = json.loads(texto_recortado)
-        print(f"[extraction] AVISO: respuesta truncada. "
-              f"Se recuperaron {len(resultado)} aviso(s) completos.")
+        print(f"[extraction] Respuesta truncada, recuperados {len(resultado)} aviso(s).")
         return resultado
     except json.JSONDecodeError as e:
-        raise ValueError(f"No se pudo parsear. Error: {e}")
+        raise ValueError(f"JSON no parseable. Error: {e}. Primeros 300 chars: {texto[:300]}")
 
 
-def _preparar_imagen_claude(archivo_path: str) -> dict:
-    """Convierte un archivo en el formato que Claude espera para imágenes."""
-    import base64
+def _preparar_imagen(archivo_path: str) -> dict:
+    """Convierte imagen a formato Claude."""
     ext = archivo_path.split(".")[-1].lower()
-    mime = {
-        "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
-        "gif": "image/gif", "webp": "image/webp",
-    }.get(ext, "image/jpeg")
-
+    mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+            "gif": "image/gif", "webp": "image/webp"}.get(ext, "image/jpeg")
     data = pathlib.Path(archivo_path).read_bytes()
-    b64 = base64.standard_b64encode(data).decode("utf-8")
-
     return {
         "type": "image",
-        "source": {
-            "type": "base64",
-            "media_type": mime,
-            "data": b64,
-        }
+        "source": {"type": "base64", "media_type": mime,
+                   "data": base64.standard_b64encode(data).decode("utf-8")}
     }
 
 
 def _extraer_una_llamada(archivo_paths: list[str], pais: str = "PA", intento: int = 0) -> list[dict]:
-    """
-    Hace UNA llamada a Claude sobre uno o más archivos que representan la
-    MISMA unidad de contexto (ej. imagen única, o mitad superior + mitad
-    inferior de una misma página de periódico). Devuelve una lista de dicts:
-      { "datos": {...campos...}, "confianza": {...campos...} }
-    """
+    """Hace una llamada a Claude y devuelve lista de avisos extraídos."""
     import time
     import anthropic
-
-    from ..config import ANTHROPIC_API_KEY, CLAUDE_MODEL
 
     if not ANTHROPIC_API_KEY:
         raise RuntimeError("ANTHROPIC_API_KEY no configurada")
 
-    print(f"[extraction] API key: {ANTHROPIC_API_KEY[:12]}... (longitud: {len(ANTHROPIC_API_KEY)})")
-    print(f"[extraction] Modelo: {CLAUDE_MODEL}")
+    print(f"[extraction] Modelo: {CLAUDE_MODEL}, archivos: {len(archivo_paths)}")
 
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, timeout=600.0)
     prompt = _construir_prompt(pais, multiples_imagenes=len(archivo_paths) > 1)
 
-    # Construir contenido: imágenes + prompt de texto
+    # Construir contenido
     content = []
     for p in archivo_paths:
         ext = p.split(".")[-1].lower()
         if ext == "pdf":
-            # Para PDFs, extraer como imágenes de cada página no es viable aquí.
-            # Claude acepta PDFs como documento directamente
-            import base64
             data = pathlib.Path(p).read_bytes()
-            b64 = base64.standard_b64encode(data).decode("utf-8")
             content.append({
                 "type": "document",
-                "source": {
-                    "type": "base64",
-                    "media_type": "application/pdf",
-                    "data": b64,
-                }
+                "source": {"type": "base64", "media_type": "application/pdf",
+                           "data": base64.standard_b64encode(data).decode("utf-8")}
             })
         else:
-            content.append(_preparar_imagen_claude(p))
-
+            content.append(_preparar_imagen(p))
     content.append({"type": "text", "text": prompt})
 
     try:
-        # Llamada directa (no streaming) con timeout largo
         response = client.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=32768,
-            system="Eres un extractor de datos JSON. SIEMPRE responde ÚNICAMENTE con un array JSON válido. Sin texto adicional, sin explicaciones, sin markdown. Solo el array JSON puro comenzando con [ y terminando con ].",
+            max_tokens=8192,
+            system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": content}],
-            timeout=600.0,
         )
-        # Extraer texto de la respuesta
-        text = ""
-        for block in response.content:
-            if block.type == "text":
-                text += block.text
+        text = "".join(block.text for block in response.content if block.type == "text")
     except Exception as e:
         error_str = str(e).lower()
-        if ("429" in error_str or "rate" in error_str or "overloaded" in error_str
-            or "529" in error_str or "capacity" in error_str):
-            if intento < 4:
-                wait_time = 30 * (intento + 1)
-                print(f"[extraction] Rate limit/overloaded. Reintento {intento+1}/4, esperando {wait_time}s...")
+        if any(x in error_str for x in ["429", "rate", "overloaded", "529", "capacity"]):
+            if intento < 3:
+                wait_time = 20 * (intento + 1)
+                print(f"[extraction] Rate limit. Reintento {intento+1}/3, espera {wait_time}s...")
                 time.sleep(wait_time)
                 return _extraer_una_llamada(archivo_paths, pais, intento + 1)
-            else:
-                print(f"[extraction] Error persistente tras 4 reintentos.")
-                raise
         raise
 
     text = text.strip().replace("```json", "").replace("```", "").strip()
+    print(f"[extraction] Respuesta ({len(text)} chars): {text[:300]}")
 
-    # Log primeros 500 chars de la respuesta para debug
-    print(f"[extraction] Respuesta Claude (longitud: {len(text)} chars)")
-    print(f"[extraction] Primeros 500: {text[:500]}")
+    if not text or len(text) < 3:
+        raise ValueError(f"Respuesta vacía de Claude: '{text}'")
 
-    # Si respuesta vacía, error claro
-    if not text or len(text) < 5:
-        raise ValueError(f"Claude devolvió respuesta vacía o muy corta: '{text}'")
-
-    # Si la respuesta contiene texto antes del JSON, extraer solo el JSON
+    # Extraer JSON si hay texto antes
     if not text.startswith("["):
-        # Buscar el inicio del array JSON
-        inicio = text.find("[")
-        if inicio != -1:
-            text = text[inicio:]
+        idx = text.find("[")
+        if idx != -1:
+            text = text[idx:]
         else:
-            # Intentar si es un solo objeto
-            inicio = text.find("{")
-            if inicio != -1:
-                text = "[" + text[inicio:]
-                # Buscar el cierre
+            idx = text.find("{")
+            if idx != -1:
+                text = "[" + text[idx:]
                 if not text.rstrip().endswith("]"):
                     text = text.rstrip() + "]"
 
-    resultado = _parsear_json_con_recuperacion(text)
+    resultado = _parsear_json(text)
 
     for item in resultado:
         item.setdefault("datos", {})
@@ -443,20 +173,11 @@ def _extraer_una_llamada(archivo_paths: list[str], pais: str = "PA", intento: in
 
 
 def extraer(archivo_paths, pais: str = "PA") -> list[dict]:
-    """
-    Punto de entrada público. Acepta un solo path (string, compatibilidad
-    con el código anterior) o una lista de paths.
-
-    - Si es UN SOLO PDF con muchas páginas (ej. feed semanal de Colombia):
-      se divide en bloques automáticamente para evitar respuestas truncadas.
-    - Si son VARIAS imágenes (ej. mitad superior + mitad inferior de una
-      página larga de periódico panameño): se mandan juntas en una sola
-      llamada, indicándole a Gemini que son continuación una de otra.
-    """
+    """Punto de entrada. Acepta path(s) de imagen o PDF."""
     if isinstance(archivo_paths, str):
         archivo_paths = [archivo_paths]
 
-    # Caso: varias imágenes de la MISMA página (no PDFs) -> una sola llamada conjunta
+    # Varias imágenes de la misma página -> una llamada conjunta
     if len(archivo_paths) > 1:
         return _extraer_una_llamada(archivo_paths, pais)
 
@@ -465,12 +186,12 @@ def extraer(archivo_paths, pais: str = "PA") -> list[dict]:
     if ext != "pdf":
         return _extraer_una_llamada([archivo_path], pais)
 
+    # PDF grande: dividir en bloques
     total_paginas = pdf_utils.contar_paginas(archivo_path)
     if total_paginas <= pdf_utils.PAGINAS_POR_BLOQUE:
         return _extraer_una_llamada([archivo_path], pais)
 
-    print(f"[extraction] PDF de {total_paginas} páginas -- dividiendo en bloques "
-          f"de {pdf_utils.PAGINAS_POR_BLOQUE} para evitar respuestas truncadas.")
+    print(f"[extraction] PDF de {total_paginas} págs, dividiendo en bloques.")
     bloques = pdf_utils.dividir_en_bloques(archivo_path)
     resultado_total = []
     try:
@@ -480,7 +201,7 @@ def extraer(archivo_paths, pais: str = "PA") -> list[dict]:
                 print(f"[extraction] Bloque {i}/{len(bloques)}: {len(parcial)} aviso(s).")
                 resultado_total.extend(parcial)
             except Exception as e:
-                print(f"[extraction] ERROR en bloque {i}/{len(bloques)}, se omite: {e}")
+                print(f"[extraction] ERROR bloque {i}: {e}")
     finally:
         pdf_utils.limpiar_bloques(bloques)
 
