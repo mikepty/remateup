@@ -78,7 +78,9 @@ def _calcular_y_validar_valores(datos: dict) -> dict:
 
     if base is None:
         return {"tiene_discrepancia": False, "detalle": [],
-                "fianza_calculada": None, "minimo_calculado": None}
+                "fianza_calculada": None, "minimo_calculado": None,
+                "fianza_porcentaje_resuelto": fianza_pct,
+                "fianza_asumida_por_regla": False}
 
     fianzas_validas = PORCENTAJES_FIANZA_VALIDOS_PA if pais == 1 else PORCENTAJES_FIANZA_VALIDOS_CO
     minimos_validos = PORCENTAJES_MINIMO_VALIDOS_PA if pais == 1 else PORCENTAJES_MINIMO_VALIDOS_CO
