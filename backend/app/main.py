@@ -85,6 +85,14 @@ def limpiar_base_datos(db: Session = Depends(get_db)):
     return {"message": "Base de datos limpiada correctamente", "status": "ok"}
 
 
+@app.post("/admin/limpiar_aprendizaje")
+def limpiar_aprendizaje(db: Session = Depends(get_db)):
+    """Borra TODAS las correcciones aprendidas (resetea el aprendizaje)."""
+    n = db.query(Correccion).delete()
+    db.commit()
+    return {"message": f"{n} correccion(es) eliminadas", "status": "ok"}
+
+
 @app.post("/admin/limpiar_pais/{pais}")
 def limpiar_por_pais(pais: str, db: Session = Depends(get_db)):
     """Borra avisos y documentos de un pais específico (PA o CO)."""
