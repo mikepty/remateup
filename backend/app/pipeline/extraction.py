@@ -23,33 +23,32 @@ SYSTEM_PROMPT = "Responde SOLO con un array JSON válido. Sin texto, sin explica
 def _construir_prompt(pais: str, multiples_imagenes: bool = False) -> str:
     campos_str = ", ".join(CAMPOS)
 
-    prompt = f"""Extrae avisos de REMATE JUDICIAL de las imágenes. Un remate tiene: valor base/avalúo + fianza + postura mínima + fecha + bien descrito + juzgado + demandante + demandado.
+    prompt = f"""Analiza las imágenes adjuntas y extrae SOLO la información que puedas LEER DIRECTAMENTE del texto visible.
 
-Ignora edictos, citaciones y otros avisos que NO sean subastas/remates.
+PROHIBIDO inventar datos. Si un dato no es legible en la imagen, usa null.
 
-REGLAS CRÍTICAS:
-- NO dupliques avisos. Si el mismo remate aparece en ambas imágenes (porque se corta entre la parte superior e inferior), es UN SOLO aviso.
-- Cada aviso de remate tiene un EXPEDIENTE o FINCA único. Si dos extractos tienen el mismo expediente/finca, son el MISMO aviso.
-- Lee con cuidado TODOS los datos: base, fianza, porcentajes, demandante, demandado. No dejes campos vacíos si están visibles.
-- SOLO transcribe datos VISIBLES. Si no puedes leer un dato, usa null. NUNCA inventes.
+Busca avisos de REMATE JUDICIAL (tienen: valor base, fianza, postura mínima, fecha, bien descrito, juzgado, demandante, demandado). Ignora otros edictos.
 
-Devuelve un array JSON. Cada objeto tiene:
-1. "datos": objeto con claves: {campos_str} (null si no aparece)
-2. "confianza": objeto con las mismas claves, valor 0-1
+Devuelve un array JSON. Cada aviso:
+{{"datos": {{{campos_str}}}, "confianza": {{mismas claves, valor 0-1}}}}
 
-Formato:
-- pais: {"1 (Panamá)" if pais == "PA" else "2 (Colombia)"}
-- fecha: YYYY-MM-DD, hora: HH:MM. Estamos en julio 2026. El periódico es de 2026.
-- categoria: CASA, APARTAMENTO, TERRENO, VEHICULO o MISCELANEO
-- base: número sin símbolo ni comas (ej: 150000.00)
-- fianza_porcentaje: % para participar (PA: 10/20/25, CO: siempre 40)
-- minimo_porcentaje: % postura mínima (66.67=dos terceras, 50=mitad, 100=total)
-- fianza/minimo: monto calculado si está impreso, sino null
-- descripcion: resumen 1-2 líneas "[Superficie], [Tipo], [Ubicación]"
-- descripcion_completa: texto íntegro del bien
-- prevista: texto para Google Maps "[Área], [Nombre PH/Urbanización], Corr: [X], Dist: [Y]"
-- codigo_prensa: SIGLA-YYYY-MM-DD-PXX (LP/ML/LE para PA, SEJ para CO) o null
-- email_observaciones: email si aparece, sino null"""
+pais: {"1" if pais == "PA" else "2"}, fecha: YYYY-MM-DD (año 2026), hora: HH:MM
+categoria: CASA/APARTAMENTO/TERRENO/VEHICULO/MISCELANEO
+base: número plano sin $ ni comas (ej: 150000.00)
+fianza_porcentaje: {"10/20/25" if pais == "PA" else "40"}
+minimo_porcentaje: 66.67(2/3)/50(mitad)/100(total)
+codigo_prensa: {"LP/ML/LE" if pais == "PA" else "SEJ"}-YYYY-MM-DD-PXX o null
+prevista: "[Área], [Nombre PH], Corr: [X], Dist: [Y]" para Google Maps"""
+
+    if multiples_imagenes:
+        prompt += "\n\nLas 2 imágenes son la misma página (superior + inferior). NO dupliques avisos que aparecen en ambas mitades."
+
+    if pais == "PA":
+        prompt += "\nContexto: periódico panameño, sección judicial."
+    else:
+        prompt += "\nContexto: PDF Colombia, tabla de remates. fianza siempre 40%."
+
+    return prompt
 
     if multiples_imagenes:
         prompt += """
