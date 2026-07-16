@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text, inspect
 from .database import Base, engine, get_db
 from .routers import documents, dashboard, approvals, exports
-from .models import Aviso, Documento, Auditoria, Aprobacion
+from .models import Aviso, Documento, Auditoria, Aprobacion, Correccion
 
 Base.metadata.create_all(bind=engine)
 
@@ -101,21 +101,39 @@ def editar_aviso(aviso_id: int, campos: dict, db: Session = Depends(get_db)):
         "codigo_prensa", "email_observaciones", "codigo_fuente", "prevista"
     ]
 
+    # Contexto del aviso para que el aprendizaje entienda el patrón
+    contexto = (aviso.descripcion_completa or aviso.descripcion or "")[:1500]
+    codigo_prensa = aviso.codigo_prensa
+
+    # Campos que NO son datos del periódico (no sirven para aprendizaje de OCR)
+    campos_no_aprendibles = {"estado", "codigo", "categoria_codigo", "codigo_ubicacion",
+                              "fianza", "minimo"}
+
+    correcciones_guardadas = 0
     for campo, valor in campos.items():
         if campo in campos_permitidos and hasattr(aviso, campo):
             valor_anterior = getattr(aviso, campo)
-            if str(valor_anterior) != str(valor):
-                # Guardar correccion para aprendizaje
-                correccion = Correccion(
-                    aviso_id=aviso_id,
-                    campo=campo,
-                    valor_anterior=str(valor_anterior),
-                    valor_nuevo=str(valor),
-                    pais=aviso.pais,
-                )
-                db.add(correccion)
+            ant_str = "" if valor_anterior in (None, "None") else str(valor_anterior)
+            nuevo_str = "" if valor in (None, "None") else str(valor)
+
+            if ant_str.strip() != nuevo_str.strip():
+                # Guardar correccion para aprendizaje (solo campos aprendibles y con valor nuevo real)
+                if campo not in campos_no_aprendibles and nuevo_str.strip():
+                    correccion = Correccion(
+                        aviso_id=aviso_id,
+                        campo=campo,
+                        valor_anterior=ant_str,
+                        valor_nuevo=nuevo_str,
+                        pais=aviso.pais,
+                        contexto=contexto,
+                        codigo_prensa=codigo_prensa,
+                        era_vacio=(ant_str.strip() == ""),
+                    )
+                    db.add(correccion)
+                    correcciones_guardadas += 1
             setattr(aviso, campo, valor)
 
     db.commit()
     db.refresh(aviso)
-    return {"message": "Aviso actualizado", "aviso_id": aviso.id}
+    return {"message": "Aviso actualizado", "aviso_id": aviso.id,
+            "correcciones_aprendidas": correcciones_guardadas}

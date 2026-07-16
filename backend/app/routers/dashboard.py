@@ -4,9 +4,30 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 from ..database import get_db
-from ..models import Aviso, Documento, Auditoria, Aprobacion
+from ..models import Aviso, Documento, Auditoria, Aprobacion, Correccion
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+
+
+@router.get("/aprendizaje")
+def estadisticas_aprendizaje(db: Session = Depends(get_db)):
+    """Muestra lo que el robot ha aprendido de las correcciones del cliente."""
+    total = db.query(func.count(Correccion.id)).scalar() or 0
+    pa = db.query(func.count(Correccion.id)).filter(Correccion.pais == 1).scalar() or 0
+    co = db.query(func.count(Correccion.id)).filter(Correccion.pais == 2).scalar() or 0
+
+    # Campos más corregidos
+    por_campo = (db.query(Correccion.campo, func.count(Correccion.id).label("n"))
+                 .group_by(Correccion.campo)
+                 .order_by(func.count(Correccion.id).desc())
+                 .limit(15).all())
+
+    return {
+        "total_correcciones": total,
+        "panama": pa,
+        "colombia": co,
+        "campos_mas_corregidos": [{"campo": c, "veces": n} for c, n in por_campo],
+    }
 
 
 @router.get("/pendientes")

@@ -104,3 +104,25 @@ class Auditoria(Base):
     accion = Column(String)
     detalle = Column(Text)
     creado_en = Column(DateTime, default=datetime.utcnow)
+
+
+class Correccion(Base):
+    """Corrección hecha por el cliente al editar un aviso. Es la fuente del
+    APRENDIZAJE: cada vez que el cliente llena un campo vacío o corrige un
+    valor, se guarda aquí. Estas correcciones se retroalimentan a la IA en
+    futuras extracciones para que capte mejor lo que suele omitir o equivocar.
+
+    Como la información que el cliente edita es la misma que aparece en la
+    página del periódico, cada corrección es "verdad de terreno" (ground truth)."""
+    __tablename__ = "correcciones"
+
+    id = Column(Integer, primary_key=True)
+    aviso_id = Column(Integer, nullable=True)
+    campo = Column(String)              # nombre del campo corregido (ej. "expediente", "plano")
+    valor_anterior = Column(Text)       # lo que la IA extrajo (puede ser vacío)
+    valor_nuevo = Column(Text)          # lo correcto según el periódico (lo que puso el cliente)
+    pais = Column(Integer)              # 1=PA, 2=CO
+    contexto = Column(Text, nullable=True)      # descripción/texto del aviso para aprender patrones
+    codigo_prensa = Column(String, nullable=True)  # fuente del aviso (LP/ML/LE/SEJ)
+    era_vacio = Column(Boolean, default=False)  # True si el campo estaba vacío y el cliente lo llenó
+    creado_en = Column(DateTime, default=datetime.utcnow)

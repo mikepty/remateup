@@ -20,8 +20,73 @@ CATEGORIAS_VALIDAS = ["CASA", "APARTAMENTO", "TERRENO", "VEHICULO", "MISCELANEO"
 
 SYSTEM_PROMPT = "Responde SOLO con un array JSON válido. Sin texto, sin explicaciones, sin markdown."
 
+
+def _cargar_aprendizaje(pais: str) -> str:
+    """Construye un bloque de APRENDIZAJE a partir de las correcciones que el
+    cliente ha hecho. Cada corrección es verdad de terreno (la info del cliente
+    es la misma que aparece en el periódico). Enseña a la IA qué campos suele
+    omitir o equivocar y con qué formato deben ir."""
+    pais_code = 1 if pais == "PA" else 2 if pais == "CO" else None
+    if pais_code is None:
+        return ""
+
+    try:
+        from ..database import SessionLocal
+        from ..models import Correccion
+        db = SessionLocal()
+        try:
+            correcciones = (db.query(Correccion)
+                            .filter(Correccion.pais == pais_code)
+                            .order_by(Correccion.creado_en.desc())
+                            .limit(120).all())
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[extraction] No se pudo cargar aprendizaje: {e}")
+        return ""
+
+    if not correcciones:
+        return ""
+
+    # Agrupar por campo
+    por_campo = {}
+    for c in correcciones:
+        por_campo.setdefault(c.campo, []).append(c)
+
+    # Ordenar campos por frecuencia de corrección (más corregidos = más importantes)
+    campos_ordenados = sorted(por_campo.items(), key=lambda kv: len(kv[1]), reverse=True)
+
+    lineas = []
+    for campo, lista in campos_ordenados[:10]:  # top 10 campos
+        veces = len(lista)
+        vacios = sum(1 for c in lista if c.era_vacio)
+        # Ejemplos de valores correctos (únicos, hasta 4)
+        vistos = set()
+        ejemplos = []
+        for c in lista:
+            v = (c.valor_nuevo or "").strip()
+            if v and v.lower() not in vistos:
+                vistos.add(v.lower())
+                ejemplos.append(v)
+            if len(ejemplos) >= 4:
+                break
+        ejemplos_str = "; ".join(f'"{e}"' for e in ejemplos) if ejemplos else "(varios)"
+        nota_vacio = f" (se dejó VACÍO {vacios} vez/veces y el cliente lo tuvo que llenar)" if vacios else ""
+        lineas.append(f"- {campo} (corregido {veces}x{nota_vacio}): ejemplos correctos -> {ejemplos_str}")
+
+    bloque = (
+        "\n\n=== APRENDIZAJE (correcciones previas del cliente) ===\n"
+        "En extracciones anteriores el cliente CORRIGIÓ o COMPLETÓ estos campos. "
+        "La información que el cliente pone es la MISMA que está impresa en el periódico. "
+        "Presta ESPECIAL atención a estos campos para captarlos completos y con el formato correcto:\n"
+        + "\n".join(lineas) +
+        "\n\nAprende de estos ejemplos: busca con cuidado estos campos y respeta su formato para lograr el 100% de captación."
+    )
+    return bloque
+
 def _construir_prompt(pais: str, multiples_imagenes: bool = False, num_tiles: int = 0) -> str:
     campos_str = ", ".join(CAMPOS)
+    aprendizaje = _cargar_aprendizaje(pais)
 
     prompt = f"""Eres un extractor de datos. Lee el texto de las imágenes y extrae los avisos de REMATE JUDICIAL.
 
@@ -39,12 +104,13 @@ Devuelve un array JSON. Cada aviso:
 {{"datos": {{{campos_str}}}, "confianza": {{mismas claves, valor 0-1}}}}
 
 pais: {"1" if pais == "PA" else "2"}, fecha: YYYY-MM-DD (año 2026), hora: HH:MM
+expediente: el número de expediente TAL CUAL aparece impreso en el aviso, completo (con año y guiones si los tiene). NO lo abrevies ni modifiques.
 categoria: CASA/APARTAMENTO/TERRENO/VEHICULO/MISCELANEO
 base: número plano sin $ ni comas (ej: 150000.00)
 fianza_porcentaje: {"10/20/25" if pais == "PA" else "40"}
 minimo_porcentaje: 66.67(2/3)/50(mitad)/100(total)
 codigo_prensa: {"LP/ML/LE" if pais == "PA" else "SEJ"}-YYYY-MM-DD-PXX o null
-prevista: "[Área], [Nombre PH], Corr: [X], Dist: [Y]" para Google Maps"""
+prevista: "[Área], [Nombre PH], Corr: [X], Dist: [Y]" para Google Maps{aprendizaje}"""
 
     if multiples_imagenes and num_tiles > 1:
         prompt += f"""
@@ -62,28 +128,30 @@ Se adjuntan {num_tiles} FRAGMENTOS de UNA página de periódico, ordenados de AR
 def _construir_prompt_texto(pais: str) -> str:
     """Prompt para estructurar TEXTO ya extraído por OCR (no imágenes)."""
     campos_str = ", ".join(CAMPOS)
+    aprendizaje = _cargar_aprendizaje(pais)
     return f"""Abajo tienes el TEXTO extraído por OCR de una página de periódico de remates judiciales de {"Panamá" if pais == "PA" else "Colombia"}.
 
-Tu tarea: identificar los avisos de REMATE JUDICIAL en el texto y estructurarlos en JSON.
+Tu tarea: identificar los avisos de REMATE JUDICIAL en el texto y estructurarlos en JSON, captando el 100% de los datos de cada aviso.
 
 Un AVISO DE REMATE dice "AVISO DE REMATE", "REMATE", "SUBASTA", e incluye base/avalúo, fianza, postura mínima, fecha, bien, juzgado, demandante, demandado. IGNORA edictos emplazatorios de citación, sucesiones y notificaciones que NO sean remates.
 
 REGLAS:
 - Usa SOLO el texto proporcionado. Si un dato no está en el texto, usa null.
 - El texto puede tener errores de OCR o venir en columnas desordenadas; usa tu criterio para agrupar los datos de cada aviso.
-- Extrae TODOS los remates que encuentres.
+- Extrae TODOS los remates que encuentres y llena TODOS los campos que estén presentes en el texto (no dejes vacío lo que sí aparece).
 - NUNCA inventes. Si no hay remates, devuelve [].
 
 Devuelve un array JSON. Cada aviso:
 {{"datos": {{{campos_str}}}, "confianza": {{mismas claves, valor 0-1}}}}
 
 pais: {"1" if pais == "PA" else "2"}, fecha: YYYY-MM-DD (año 2026), hora: HH:MM
+expediente: el número de expediente TAL CUAL aparece impreso en el aviso, completo (con año y guiones si los tiene, ej: "3286/2025", "07-353-2024"). NO lo abrevies ni modifiques.
 categoria: CASA/APARTAMENTO/TERRENO/VEHICULO/MISCELANEO
 base: número plano sin $ ni comas (ej: 150000.00)
 fianza_porcentaje: {"10/20/25" if pais == "PA" else "40"}
 minimo_porcentaje: 66.67(2/3)/50(mitad)/100(total)
 codigo_prensa: {"LP/ML/LE" if pais == "PA" else "SEJ"}-YYYY-MM-DD-PXX o null
-prevista: "[Área], [Nombre PH], Corr: [X], Dist: [Y]" para Google Maps"""
+prevista: "[Área], [Nombre PH], Corr: [X], Dist: [Y]" para Google Maps{aprendizaje}"""
 
 
 def _estructurar_texto_ocr(texto_ocr: str, pais: str = "PA", intento: int = 0) -> list[dict]:
