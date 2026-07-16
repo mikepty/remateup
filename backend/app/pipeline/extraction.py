@@ -145,8 +145,13 @@ def _extraer_una_llamada(archivo_paths: list[str], pais: str = "PA", intento: in
     text = text.strip().replace("```json", "").replace("```", "").strip()
     print(f"[extraction] Respuesta ({len(text)} chars): {text[:300]}")
 
-    if not text or len(text) < 3:
+    if not text or len(text) < 2:
         raise ValueError(f"Respuesta vacía de Claude: '{text}'")
+
+    # [] es respuesta válida (0 remates encontrados)
+    if text.strip() == "[]":
+        print("[extraction] Claude no encontró avisos de remate en las imágenes.")
+        return []
 
     # Extraer JSON si hay texto antes
     if not text.startswith("["):
