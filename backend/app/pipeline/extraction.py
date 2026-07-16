@@ -378,16 +378,19 @@ def _extraer_una_llamada(archivo_paths: list[str], pais: str = "PA", intento: in
     content.append({"type": "text", "text": prompt})
 
     try:
-        # Usar streaming para evitar timeout en requests largos (>10min)
-        text = ""
-        with client.messages.stream(
+        # Llamada directa (no streaming) con timeout largo
+        response = client.messages.create(
             model=CLAUDE_MODEL,
             max_tokens=32768,
             system="Eres un extractor de datos JSON. SIEMPRE responde ÚNICAMENTE con un array JSON válido. Sin texto adicional, sin explicaciones, sin markdown. Solo el array JSON puro comenzando con [ y terminando con ].",
             messages=[{"role": "user", "content": content}],
-        ) as stream:
-            for chunk in stream.text_stream:
-                text += chunk
+            timeout=600.0,
+        )
+        # Extraer texto de la respuesta
+        text = ""
+        for block in response.content:
+            if block.type == "text":
+                text += block.text
     except Exception as e:
         error_str = str(e).lower()
         if ("429" in error_str or "rate" in error_str or "overloaded" in error_str
