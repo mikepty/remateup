@@ -182,24 +182,48 @@ def extraer(archivo_paths, pais: str = "PA") -> list[dict]:
     if isinstance(archivo_paths, str):
         archivo_paths = [archivo_paths]
 
-    # Colombia + PDF: usar parser local (gratis, sin IA)
     archivo_path = archivo_paths[0]
     ext = archivo_path.split(".")[-1].lower()
-    if pais == "CO" and ext == "pdf":
-        from . import pdf_colombia_parser
-        print(f"[extraction] Colombia PDF: usando parser local (sin IA, gratis)")
-        resultado = pdf_colombia_parser.extraer_desde_pdf(archivo_path)
-        print(f"[extraction] Parser local extrajo {len(resultado)} aviso(s)")
-        return resultado
 
-    # Varias imágenes de la misma página -> una llamada conjunta
+    # Colombia + PDF: intentar parser local primero, si no hay texto usar Claude por bloques
+    if pais == "CO" and ext == "pdf":
+        from pypdf import PdfReader
+        reader = PdfReader(archivo_path)
+        texto_test = (reader.pages[0].extract_text() or "").strip() if reader.pages else ""
+
+        if len(texto_test) > 50:
+            # PDF con texto seleccionable: usar parser local (gratis)
+            from . import pdf_colombia_parser
+            print(f"[extraction] Colombia PDF con texto: usando parser local (gratis)")
+            resultado = pdf_colombia_parser.extraer_desde_pdf(archivo_path)
+            print(f"[extraction] Parser local extrajo {len(resultado)} aviso(s)")
+            return resultado
+        else:
+            # PDF escaneado (solo imágenes): usar Claude por bloques
+            print(f"[extraction] Colombia PDF escaneado: usando Claude por bloques")
+            total_paginas = pdf_utils.contar_paginas(archivo_path)
+            bloques = pdf_utils.dividir_en_bloques(archivo_path, paginas_por_bloque=5)
+            resultado_total = []
+            try:
+                for i, bloque_path in enumerate(bloques, 1):
+                    try:
+                        parcial = _extraer_una_llamada([bloque_path], pais)
+                        print(f"[extraction] Bloque {i}/{len(bloques)}: {len(parcial)} aviso(s).")
+                        resultado_total.extend(parcial)
+                    except Exception as e:
+                        print(f"[extraction] ERROR bloque {i}: {e}")
+            finally:
+                pdf_utils.limpiar_bloques(bloques)
+            return resultado_total
+
+    # Varias imágenes de la misma página -> una llamada conjunta (Panamá)
     if len(archivo_paths) > 1:
         return _extraer_una_llamada(archivo_paths, pais)
 
     if ext != "pdf":
         return _extraer_una_llamada([archivo_path], pais)
 
-    # PDF grande: dividir en bloques (caso raro para Panamá)
+    # PDF grande no-Colombia: dividir en bloques
     total_paginas = pdf_utils.contar_paginas(archivo_path)
     if total_paginas <= pdf_utils.PAGINAS_POR_BLOQUE:
         return _extraer_una_llamada([archivo_path], pais)
