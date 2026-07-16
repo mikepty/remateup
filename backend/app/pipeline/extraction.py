@@ -41,7 +41,7 @@ codigo_prensa: {"LP/ML/LE" if pais == "PA" else "SEJ"}-YYYY-MM-DD-PXX o null
 prevista: "[Área], [Nombre PH], Corr: [X], Dist: [Y]" para Google Maps"""
 
     if multiples_imagenes:
-        prompt += "\n\nLas 2 imágenes son la misma página (superior + inferior). NO dupliques avisos que aparecen en ambas mitades."
+        prompt += "\n\nEsta imagen es PARTE de una página de periódico (puede ser la mitad superior o inferior). Extrae solo los avisos de remate visibles en ESTA imagen."
 
     if pais == "PA":
         prompt += "\nContexto: periódico panameño, sección judicial."
@@ -221,9 +221,30 @@ def extraer(archivo_paths, pais: str = "PA") -> list[dict]:
                 pdf_utils.limpiar_bloques(bloques)
             return resultado_total
 
-    # Varias imágenes de la misma página -> una llamada conjunta (Panamá)
+    # Varias imágenes de la misma página -> procesar cada una por separado y fusionar
+    # (Enviar ambas juntas causa que Claude no pueda leer el texto denso)
     if len(archivo_paths) > 1:
-        return _extraer_una_llamada(archivo_paths, pais)
+        print(f"[extraction] Procesando {len(archivo_paths)} imágenes por SEPARADO y fusionando")
+        resultado_total = []
+        for i, path in enumerate(archivo_paths):
+            try:
+                parcial = _extraer_una_llamada([path], pais)
+                print(f"[extraction] Imagen {i+1}: {len(parcial)} aviso(s)")
+                resultado_total.extend(parcial)
+            except Exception as e:
+                print(f"[extraction] ERROR imagen {i+1}: {e}")
+        # Deduplicar por finca_matr si existe
+        vistos = set()
+        deduplicados = []
+        for item in resultado_total:
+            finca = item.get("datos", {}).get("finca_matr") or ""
+            exp = item.get("datos", {}).get("expediente") or ""
+            clave = f"{finca}_{exp}"
+            if clave == "_" or clave not in vistos:
+                vistos.add(clave)
+                deduplicados.append(item)
+        print(f"[extraction] Total tras deduplicar: {len(deduplicados)} aviso(s)")
+        return deduplicados
 
     if ext != "pdf":
         return _extraer_una_llamada([archivo_path], pais)
