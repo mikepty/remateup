@@ -23,7 +23,20 @@ SYSTEM_PROMPT = "Responde SOLO con un array JSON válido. Sin texto, sin explica
 def _construir_prompt(pais: str, multiples_imagenes: bool = False) -> str:
     campos_str = ", ".join(CAMPOS)
 
-    prompt = f"""Extrae SOLO avisos de REMATE JUDICIAL de las imágenes. Un remate DEBE tener: valor base/avalúo + fianza + postura mínima + fecha + bien descrito. Ignora edictos, citaciones y otros avisos que NO sean subastas.
+    prompt = f"""Extrae TODOS los avisos de REMATE JUDICIAL visibles en las imágenes.
+
+Un aviso de remate SIEMPRE tiene estos datos (todos obligatorios, búscalos):
+- VALOR BASE o AVALÚO (monto en dinero, ej. "B/. 150,000.00")
+- FIANZA (porcentaje para participar, ej. "10%", "20%")
+- POSTURA MÍNIMA (porcentaje para ganar, ej. "dos terceras partes" = 66.67%)
+- FECHA del remate (día específico)
+- BIEN descrito (inmueble, vehículo, etc.)
+- JUZGADO que ordena
+- DEMANDANTE y DEMANDADO
+
+Ignora edictos, citaciones y otros avisos que NO tengan valor base + fianza + postura.
+
+IMPORTANTE: Lee con cuidado TODOS los datos de cada aviso. No dejes campos vacíos si el dato está visible. Los montos de dinero y porcentajes son CRÍTICOS.
 
 SOLO transcribe datos VISIBLES en la imagen. Si no puedes leer un dato, usa null. NUNCA inventes.
 
@@ -33,9 +46,9 @@ Devuelve un array JSON. Cada objeto tiene:
 
 Formato:
 - pais: {"1 (Panamá)" if pais == "PA" else "2 (Colombia)"}
-- fecha: YYYY-MM-DD, hora: HH:MM. IMPORTANTE: Estamos en 2026. Si lees una fecha del periódico, el año es 2026 (no 2028, no 2024). Lee con cuidado los dígitos del año.
+- fecha: YYYY-MM-DD, hora: HH:MM. IMPORTANTE: Estamos en julio 2026. El periódico es de 2026, NO 2028 ni 2024.
 - categoria: CASA, APARTAMENTO, TERRENO, VEHICULO o MISCELANEO
-- base: número sin símbolo ni comas (ej: 39500.00)
+- base: número sin símbolo ni comas (ej: 150000.00)
 - fianza_porcentaje: % para participar (PA: 10/20/25, CO: siempre 40)
 - minimo_porcentaje: % postura mínima (66.67=dos terceras, 50=mitad, 100=total)
 - fianza/minimo: solo si el aviso imprime el monto calculado, sino null
