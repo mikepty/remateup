@@ -20,14 +20,14 @@ CATEGORIAS_VALIDAS = ["CASA", "APARTAMENTO", "TERRENO", "VEHICULO", "MISCELANEO"
 
 SYSTEM_PROMPT = "Responde SOLO con un array JSON válido. Sin texto, sin explicaciones, sin markdown."
 
-def _construir_prompt(pais: str, multiples_imagenes: bool = False) -> str:
+def _construir_prompt(pais: str, multiples_imagenes: bool = False, num_tiles: int = 0) -> str:
     campos_str = ", ".join(CAMPOS)
 
     prompt = f"""Analiza las imágenes adjuntas y extrae SOLO la información que puedas LEER DIRECTAMENTE del texto visible.
 
-PROHIBIDO inventar datos. Si un dato no es legible en la imagen, usa null.
+PROHIBIDO inventar datos. Si no puedes leer un dato claramente, usa null. Si NO hay avisos de remate legibles, devuelve [].
 
-Busca avisos de REMATE JUDICIAL (tienen: valor base, fianza, postura mínima, fecha, bien descrito, juzgado, demandante, demandado). Ignora otros edictos.
+Busca avisos de REMATE JUDICIAL (tienen: valor base, fianza, postura mínima, fecha, bien descrito, juzgado, demandante, demandado). Ignora otros edictos (citaciones, sucesiones, notificaciones).
 
 Devuelve un array JSON. Cada aviso:
 {{"datos": {{{campos_str}}}, "confianza": {{mismas claves, valor 0-1}}}}
@@ -40,11 +40,13 @@ minimo_porcentaje: 66.67(2/3)/50(mitad)/100(total)
 codigo_prensa: {"LP/ML/LE" if pais == "PA" else "SEJ"}-YYYY-MM-DD-PXX o null
 prevista: "[Área], [Nombre PH], Corr: [X], Dist: [Y]" para Google Maps"""
 
-    if multiples_imagenes:
-        prompt += "\n\nEsta imagen es PARTE de una página de periódico (puede ser la mitad superior o inferior). Extrae solo los avisos de remate visibles en ESTA imagen."
+    if multiples_imagenes and num_tiles > 1:
+        prompt += f"""
+
+IMPORTANTE: Se adjuntan {num_tiles} imágenes que son FRAGMENTOS (mosaicos) de UNA SOLA página de periódico, ordenados de ARRIBA hacia ABAJO e IZQUIERDA a DERECHA. El texto está en COLUMNAS verticales que se leen de arriba a abajo. Un mismo aviso puede aparecer partido entre dos fragmentos que se solapan -- en ese caso es UN SOLO aviso, NO lo dupliques. Cada aviso tiene un EXPEDIENTE y FINCA únicos; si ves el mismo expediente/finca en dos fragmentos, es el MISMO aviso. Reconstruye el texto completo de cada aviso uniendo los fragmentos."""
 
     if pais == "PA":
-        prompt += "\nContexto: periódico panameño, sección judicial."
+        prompt += "\nContexto: periódico panameño (La Prensa, La Estrella), sección judicial. Los remates dicen 'AVISO DE REMATE', 'BASE DEL REMATE', 'AVALÚO', 'FIANZA', 'POSTURA'."
     else:
         prompt += "\nContexto: PDF Colombia, tabla de remates. fianza siempre 40%."
 
@@ -112,27 +114,35 @@ def _extraer_una_llamada(archivo_paths: list[str], pais: str = "PA", intento: in
     print(f"[extraction] Modelo: {CLAUDE_MODEL}, archivos: {len(archivo_paths)}")
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, timeout=600.0)
-    prompt = _construir_prompt(pais, multiples_imagenes=len(archivo_paths) > 1)
 
-    # Construir contenido
+    # Detectar si son imágenes (no PDF)
+    es_pdf = archivo_paths[0].split(".")[-1].lower() == "pdf"
+
     content = []
-    for p in archivo_paths:
-        ext = p.split(".")[-1].lower()
-        if ext == "pdf":
+    if es_pdf:
+        # PDF: enviar directo
+        prompt = _construir_prompt(pais, multiples_imagenes=False)
+        for p in archivo_paths:
             data = pathlib.Path(p).read_bytes()
             content.append({
                 "type": "document",
                 "source": {"type": "base64", "media_type": "application/pdf",
                            "data": base64.standard_b64encode(data).decode("utf-8")}
             })
-        else:
-            content.append(_preparar_imagen(p))
-    content.append({"type": "text", "text": prompt})
+        content.append({"type": "text", "text": prompt})
+    else:
+        # IMÁGENES: dividir en tiles legibles (evita que Anthropic reduzca
+        # la resolución y el texto quede ilegible -> causa de alucinaciones)
+        from . import image_tiler
+        tiles = image_tiler.generar_tiles(archivo_paths)
+        prompt = _construir_prompt(pais, multiples_imagenes=True, num_tiles=len(tiles))
+        content.extend(tiles)
+        content.append({"type": "text", "text": prompt})
 
     try:
         response = client.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=8192,
+            max_tokens=16384,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": content}],
         )
@@ -182,6 +192,28 @@ def _extraer_una_llamada(archivo_paths: list[str], pais: str = "PA", intento: in
     return resultado
 
 
+def _deduplicar(avisos: list[dict]) -> list[dict]:
+    """Elimina avisos duplicados (mismo expediente+finca) que pueden aparecer
+    en tiles que se solapan."""
+    vistos = set()
+    unicos = []
+    for item in avisos:
+        d = item.get("datos", {})
+        finca = str(d.get("finca_matr") or "").strip()
+        exp = str(d.get("expediente") or "").strip()
+        clave = f"{finca}|{exp}"
+        # Si no tiene ni finca ni expediente, no podemos deduplicar -> incluir
+        if clave == "|":
+            unicos.append(item)
+            continue
+        if clave not in vistos:
+            vistos.add(clave)
+            unicos.append(item)
+        else:
+            print(f"[extraction] Duplicado descartado: exp={exp}, finca={finca}")
+    return unicos
+
+
 def extraer(archivo_paths, pais: str = "PA") -> list[dict]:
     """Punto de entrada. Acepta path(s) de imagen o PDF."""
     if isinstance(archivo_paths, str):
@@ -221,33 +253,17 @@ def extraer(archivo_paths, pais: str = "PA") -> list[dict]:
                 pdf_utils.limpiar_bloques(bloques)
             return resultado_total
 
-    # Varias imágenes de la misma página -> procesar cada una por separado y fusionar
-    # (Enviar ambas juntas causa que Claude no pueda leer el texto denso)
+    # Varias imágenes de la misma página (Panamá: superior + inferior).
+    # El tiler las apila en una sola página y las divide en tiles legibles,
+    # que se envían juntos en UNA llamada. Se deduplica por finca/expediente.
     if len(archivo_paths) > 1:
-        print(f"[extraction] Procesando {len(archivo_paths)} imágenes por SEPARADO y fusionando")
-        resultado_total = []
-        for i, path in enumerate(archivo_paths):
-            try:
-                parcial = _extraer_una_llamada([path], pais)
-                print(f"[extraction] Imagen {i+1}: {len(parcial)} aviso(s)")
-                resultado_total.extend(parcial)
-            except Exception as e:
-                print(f"[extraction] ERROR imagen {i+1}: {e}")
-        # Deduplicar por finca_matr si existe
-        vistos = set()
-        deduplicados = []
-        for item in resultado_total:
-            finca = item.get("datos", {}).get("finca_matr") or ""
-            exp = item.get("datos", {}).get("expediente") or ""
-            clave = f"{finca}_{exp}"
-            if clave == "_" or clave not in vistos:
-                vistos.add(clave)
-                deduplicados.append(item)
-        print(f"[extraction] Total tras deduplicar: {len(deduplicados)} aviso(s)")
-        return deduplicados
+        resultado = _extraer_una_llamada(archivo_paths, pais)
+        return _deduplicar(resultado)
 
     if ext != "pdf":
-        return _extraer_una_llamada([archivo_path], pais)
+        # Imagen única -> también se divide en tiles legibles
+        resultado = _extraer_una_llamada([archivo_path], pais)
+        return _deduplicar(resultado)
 
     # PDF grande no-Colombia: dividir en bloques
     total_paginas = pdf_utils.contar_paginas(archivo_path)
