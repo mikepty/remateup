@@ -33,7 +33,7 @@ Devuelve un array JSON. Cada objeto tiene:
 
 Formato:
 - pais: {"1 (Panamá)" if pais == "PA" else "2 (Colombia)"}
-- fecha: YYYY-MM-DD, hora: HH:MM
+- fecha: YYYY-MM-DD, hora: HH:MM. IMPORTANTE: Estamos en 2026. Si lees una fecha del periódico, el año es 2026 (no 2028, no 2024). Lee con cuidado los dígitos del año.
 - categoria: CASA, APARTAMENTO, TERRENO, VEHICULO o MISCELANEO
 - base: número sin símbolo ni comas (ej: 39500.00)
 - fianza_porcentaje: % para participar (PA: 10/20/25, CO: siempre 40)
