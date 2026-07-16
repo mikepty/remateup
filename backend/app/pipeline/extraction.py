@@ -23,11 +23,17 @@ SYSTEM_PROMPT = "Responde SOLO con un array JSON válido. Sin texto, sin explica
 def _construir_prompt(pais: str, multiples_imagenes: bool = False, num_tiles: int = 0) -> str:
     campos_str = ", ".join(CAMPOS)
 
-    prompt = f"""Analiza las imágenes adjuntas y extrae SOLO la información que puedas LEER DIRECTAMENTE del texto visible.
+    prompt = f"""Eres un extractor de datos. Lee el texto de las imágenes y extrae los avisos de REMATE JUDICIAL.
 
-PROHIBIDO inventar datos. Si no puedes leer un dato claramente, usa null. Si NO hay avisos de remate legibles, devuelve [].
+Un AVISO DE REMATE se identifica porque dice "AVISO DE REMATE", "REMATE", "SUBASTA", "BASE DEL REMATE", "AVALÚO", "FIANZA", "POSTURA MÍNIMA". Ignora edictos emplazatorios de citación, sucesiones y notificaciones que NO sean remates.
 
-Busca avisos de REMATE JUDICIAL (tienen: valor base, fianza, postura mínima, fecha, bien descrito, juzgado, demandante, demandado). Ignora otros edictos (citaciones, sucesiones, notificaciones).
+Extrae CADA aviso de remate que encuentres, aunque su texto esté repartido en varios fragmentos. Une los fragmentos para reconstruir cada aviso.
+
+REGLAS:
+- Transcribe SOLO lo que leas en las imágenes. Si un dato no está, usa null.
+- NUNCA inventes datos de otras fuentes.
+- NUNCA devuelvas texto explicativo, notas ni mensajes como si fueran un aviso. Si NO encuentras ningún remate, devuelve exactamente: []
+- Extrae aunque falten algunos datos: si ves un remate pero no todos sus campos, inclúyelo con los datos que tengas y null en el resto.
 
 Devuelve un array JSON. Cada aviso:
 {{"datos": {{{campos_str}}}, "confianza": {{mismas claves, valor 0-1}}}}
@@ -43,28 +49,12 @@ prevista: "[Área], [Nombre PH], Corr: [X], Dist: [Y]" para Google Maps"""
     if multiples_imagenes and num_tiles > 1:
         prompt += f"""
 
-IMPORTANTE: Se adjuntan {num_tiles} imágenes que son FRAGMENTOS (mosaicos) de UNA SOLA página de periódico, ordenados de ARRIBA hacia ABAJO e IZQUIERDA a DERECHA. El texto está en COLUMNAS verticales que se leen de arriba a abajo. Un mismo aviso puede aparecer partido entre dos fragmentos que se solapan -- en ese caso es UN SOLO aviso, NO lo dupliques. Cada aviso tiene un EXPEDIENTE y FINCA únicos; si ves el mismo expediente/finca en dos fragmentos, es el MISMO aviso. Reconstruye el texto completo de cada aviso uniendo los fragmentos."""
+Se adjuntan {num_tiles} FRAGMENTOS de UNA página de periódico, ordenados de ARRIBA a ABAJO e IZQUIERDA a DERECHA. El texto está en COLUMNAS verticales (se leen de arriba a abajo, y cada columna continúa en el fragmento de abajo). Un aviso puede empezar en un fragmento y seguir en el de abajo -- ÚNELOS en un solo aviso. Si el mismo expediente/finca aparece en 2 fragmentos (por el solape), es UN SOLO aviso, no lo dupliques."""
 
     if pais == "PA":
-        prompt += "\nContexto: periódico panameño (La Prensa, La Estrella), sección judicial. Los remates dicen 'AVISO DE REMATE', 'BASE DEL REMATE', 'AVALÚO', 'FIANZA', 'POSTURA'."
+        prompt += "\nContexto: periódico panameño (La Prensa, La Estrella). Panamá: fianza 10/20/25%."
     else:
-        prompt += "\nContexto: PDF Colombia, tabla de remates. fianza siempre 40%."
-
-    return prompt
-
-    if multiples_imagenes:
-        prompt += """
-
-Las 2 imágenes son la MISMA página (superior + inferior). Trátalas como un lienzo continuo. Fusiona avisos que empiezan arriba y terminan abajo."""
-
-    if pais == "PA":
-        prompt += """
-
-Contexto: periódico panameño, sección judicial. Solo extrae REMATES (tienen "AVISO DE REMATE", "BASE", "FIANZA", "POSTURA MÍNIMA"). Ignora todo lo demás."""
-    else:
-        prompt += """
-
-Contexto: PDF de remates Colombia. Cada aviso tiene juzgado, expediente, avalúo, porcentaje mínimo. fianza_porcentaje siempre 40."""
+        prompt += "\nContexto: tabla de remates Colombia. fianza siempre 40%."
 
     return prompt
 
@@ -181,6 +171,25 @@ def _extraer_una_llamada(archivo_paths: list[str], pais: str = "PA", intento: in
                     text = text.rstrip() + "]"
 
     resultado = _parsear_json(text)
+
+    # Filtrar respuestas "meta": Claude a veces mete explicaciones/notas en los
+    # campos en vez de devolver []. Detectamos frases típicas y las descartamos.
+    frases_meta = [
+        "no se pueden leer", "no se puede leer", "no hay avisos", "la página contiene",
+        "el texto es muy denso", "está fragmentado", "no son remates", "sin avisos de remate",
+        "edictos emplazatorios", "no se encontr", "no se identific", "texto ilegible",
+        "no legible", "datos suficientes",
+    ]
+    filtrados = []
+    for item in resultado:
+        d = item.get("datos", {})
+        # Concatenar campos de texto largos para revisar
+        blob = " ".join(str(d.get(c) or "") for c in ["descripcion", "descripcion_completa", "email_observaciones"]).lower()
+        if any(frase in blob for frase in frases_meta):
+            print(f"[extraction] Descartada respuesta meta/explicativa (no es un aviso real)")
+            continue
+        filtrados.append(item)
+    resultado = filtrados
 
     for item in resultado:
         item.setdefault("datos", {})
