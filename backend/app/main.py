@@ -68,6 +68,23 @@ def limpiar_base_datos(db: Session = Depends(get_db)):
     return {"message": "Base de datos limpiada correctamente", "status": "ok"}
 
 
+@app.post("/admin/limpiar_pais/{pais}")
+def limpiar_por_pais(pais: str, db: Session = Depends(get_db)):
+    """Borra avisos y documentos de un pais específico (PA o CO)."""
+    pais_num = 1 if pais == "PA" else 2 if pais == "CO" else None
+    if pais_num is None:
+        return {"error": "pais debe ser PA o CO"}
+    # Borrar avisos del país
+    avisos_ids = [a.id for a in db.query(Aviso).filter(Aviso.pais == pais_num).all()]
+    if avisos_ids:
+        db.query(Aprobacion).filter(Aprobacion.aviso_id.in_(avisos_ids)).delete(synchronize_session=False)
+        db.query(Auditoria).filter(Auditoria.aviso_id.in_(avisos_ids)).delete(synchronize_session=False)
+    db.query(Aviso).filter(Aviso.pais == pais_num).delete(synchronize_session=False)
+    db.query(Documento).filter(Documento.pais == pais).delete(synchronize_session=False)
+    db.commit()
+    return {"message": f"Datos de {pais} eliminados", "status": "ok"}
+
+
 @app.put("/admin/editar_aviso/{aviso_id}")
 def editar_aviso(aviso_id: int, campos: dict, db: Session = Depends(get_db)):
     """Edita campos especificos de un aviso y guarda correcciones para aprendizaje."""
