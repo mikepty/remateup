@@ -106,6 +106,14 @@
   .audit-item .action{color:var(--text); flex:1;}
   .audit-item .time{color:var(--gray); font-size:9px; white-space:nowrap;}
 
+  /* Tabs */
+  .tab-btn{padding:8px 16px; border:none; background:none; font-size:12px; font-weight:600; color:var(--gray); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px; transition:all .15s;}
+  .tab-btn.active{color:var(--navy); border-bottom-color:var(--navy);}
+  .tab-btn:hover{color:var(--navy);}
+  .tab-btn .count{font-size:10px; font-weight:400; color:var(--gray); margin-left:4px;}
+  .tab-content{display:none;}
+  .tab-content.show{display:block;}
+
   @media(max-width:640px){
     .metrics{grid-template-columns:repeat(2,1fr);}
     .upload-section{grid-template-columns:1fr;}
@@ -167,58 +175,53 @@
   <!-- METRICS -->
   <div class="metrics" id="metricas"></div>
 
-  <!-- ULTIMOS PROCESADOS -->
-  <div class="card" id="ultimosProcesadosCard">
-    <div class="card-title">
-      Ultimos Procesados
-      <span class="count" id="countUltimos"></span>
-    </div>
-    <div style="font-size:9px; color:var(--gray); margin-bottom:8px;">Avisos del ultimo documento procesado (mas recientes primero)</div>
-    <div id="ultimosProcesados"><div class="empty">Cargando...</div></div>
-  </div>
-
-  <!-- PENDIENTES -->
+  <!-- PESTAÑAS DE AVISOS -->
   <div class="card">
-    <div class="card-title">
-      Pendientes de Aprobacion
-      <span class="count" id="countPendientes"></span>
+    <div style="display:flex; border-bottom:2px solid var(--border); margin-bottom:12px;">
+      <button class="tab-btn active" onclick="cambiarTab('ultimos')" id="tabUltimos">Ultimos Procesados <span class="count" id="countUltimos">0</span></button>
+      <button class="tab-btn" onclick="cambiarTab('pendientes')" id="tabPendientes">Pendientes <span class="count" id="countPendientes">0</span></button>
+      <button class="tab-btn" onclick="cambiarTab('historial')" id="tabHistorial">Historial <span class="count" id="countHistorial">0</span></button>
     </div>
-    <div style="margin-bottom:10px;">
-      <button onclick="simularTodas()" class="btn btn-warning" style="font-size:10px;">Simular Aprobacion Masiva</button>
-      <span style="font-size:9px; color:var(--gray); margin-left:6px;">Aprueba y sube todos automaticamente</span>
-    </div>
-    <div class="filtros" id="filtrosPendientes"></div>
-    <div id="pendientes"></div>
-    <div id="paginacionPendientes" style="display:flex; justify-content:center; gap:4px; margin-top:12px; flex-wrap:wrap;"></div>
-  </div>
 
-  <!-- HISTORIAL -->
-  <div class="card">
-    <div class="card-title">
-      Historial
-      <span class="count" id="countHistorial"></span>
+    <!-- Tab: Ultimos Procesados -->
+    <div id="tabContentUltimos" class="tab-content show">
+      <div style="font-size:9px; color:var(--gray); margin-bottom:8px;">Avisos del ultimo documento procesado (mas recientes primero)</div>
+      <div id="ultimosProcesados"><div class="empty">Cargando...</div></div>
     </div>
-    <!-- Filtros independientes -->
-    <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; align-items:center;">
-      <select id="filtroPais" onchange="cargarHistorial()" style="padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px;">
-        <option value="">Todos los paises</option>
-        <option value="1">Panama</option>
-        <option value="2">Colombia</option>
-      </select>
-      <select id="filtroEstado" onchange="cargarHistorial()" style="padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px;">
-        <option value="">Todos los estados</option>
-        <option value="subido">Subidos</option>
-        <option value="auto_aprobado">Auto-aprobados</option>
-        <option value="esperando_aprobacion">Pendientes</option>
-        <option value="reemplazado_por_republicacion">Reemplazados</option>
-      </select>
-      <input type="date" id="filtroFechaRemate" onchange="cargarHistorial()" style="padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px;" title="Fecha del remate">
-      <input type="date" id="filtroFechaSubida" onchange="cargarHistorial()" style="padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px;" title="Fecha de subida">
-      <input type="text" id="filtroBuscar" placeholder="Buscar..." onkeyup="cargarHistorial()" style="padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px; width:150px;">
+
+    <!-- Tab: Pendientes -->
+    <div id="tabContentPendientes" class="tab-content">
+      <div style="margin-bottom:10px;">
+        <button onclick="simularTodas()" class="btn btn-warning" style="font-size:10px;">Simular Aprobacion Masiva</button>
+        <span style="font-size:9px; color:var(--gray); margin-left:6px;">Aprueba y sube todos automaticamente</span>
+      </div>
+      <div class="filtros" id="filtrosPendientes"></div>
+      <div id="pendientes"></div>
+      <div id="paginacionPendientes" style="display:flex; justify-content:center; gap:4px; margin-top:12px; flex-wrap:wrap;"></div>
     </div>
-    <div id="historial"></div>
-    <!-- Paginacion -->
-    <div id="paginacion" style="display:flex; justify-content:center; gap:4px; margin-top:12px; flex-wrap:wrap;"></div>
+
+    <!-- Tab: Historial -->
+    <div id="tabContentHistorial" class="tab-content">
+      <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; align-items:center;">
+        <select id="filtroPais" onchange="cargarHistorial()" style="padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px;">
+          <option value="">Todos los paises</option>
+          <option value="1">Panama</option>
+          <option value="2">Colombia</option>
+        </select>
+        <select id="filtroEstado" onchange="cargarHistorial()" style="padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px;">
+          <option value="">Todos los estados</option>
+          <option value="subido">Subidos</option>
+          <option value="auto_aprobado">Auto-aprobados</option>
+          <option value="esperando_aprobacion">Pendientes</option>
+          <option value="reemplazado_por_republicacion">Reemplazados</option>
+        </select>
+        <input type="date" id="filtroFechaRemate" onchange="cargarHistorial()" style="padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px;" title="Fecha del remate">
+        <input type="date" id="filtroFechaSubida" onchange="cargarHistorial()" style="padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px;" title="Fecha de subida">
+        <input type="text" id="filtroBuscar" placeholder="Buscar..." onkeyup="cargarHistorial()" style="padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:11px; width:150px;">
+      </div>
+      <div id="historial"></div>
+      <div id="paginacion" style="display:flex; justify-content:center; gap:4px; margin-top:12px; flex-wrap:wrap;"></div>
+    </div>
   </div>
 
   <!-- EXPORTAR -->
@@ -269,6 +272,15 @@ async function conectar(){
     backendOnline = false;
     showStatus('uploadStatus','error','No se pudo conectar al servidor. El backend puede estar despertando (espera 30-60s y recarga la pagina).');
   }
+}
+
+// Tabs
+function cambiarTab(tab){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('show'));
+  if(tab==='ultimos'){ $('tabUltimos').classList.add('active'); $('tabContentUltimos').classList.add('show'); }
+  if(tab==='pendientes'){ $('tabPendientes').classList.add('active'); $('tabContentPendientes').classList.add('show'); }
+  if(tab==='historial'){ $('tabHistorial').classList.add('active'); $('tabContentHistorial').classList.add('show'); }
 }
 
 // Helpers
@@ -393,7 +405,7 @@ async function mostrarUltimosProcesados(avisosResumen){
       : '<div class="empty">No hay avisos procesados aun.</div>';
 
     if(avisosResumen && avisosResumen.length > 0){
-      $('ultimosProcesadosCard').scrollIntoView({behavior:'smooth', block:'start'});
+      cambiarTab('ultimos');
     }
   }catch(e){
     $('ultimosProcesados').innerHTML = '<div class="empty">Error cargando ultimos procesados.</div>';
