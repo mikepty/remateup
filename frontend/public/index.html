@@ -306,8 +306,14 @@ async function subirDocumento(){
   const inf = $('uploadInferior');
   if(!pri.files.length){ showStatus('uploadStatus','error','Selecciona al menos la imagen principal.'); return; }
 
-  // Validacion: si es Panama y son imagenes (no PDF), debe tener imagen inferior
+  // Validacion: PDFs solo para Colombia
   const esPDF = pri.files[0].name.toLowerCase().endsWith('.pdf');
+  if(pais === 'PA' && esPDF){
+    showStatus('uploadStatus','error','⚠️ Los PDFs solo se pueden procesar como Colombia. Selecciona "Colombia (PDF)" como pais, o sube imagenes para Panama.');
+    return;
+  }
+
+  // Validacion: si es Panama y son imagenes (no PDF), debe tener imagen inferior
   if(pais === 'PA' && !esPDF && !inf.files.length){
     showStatus('uploadStatus','error','⚠️ FALTA la imagen INFERIOR. En Panamá se requieren 2 imágenes (superior + inferior) de la misma página de periódico.');
     if(!confirm('⚠️ Solo tienes 1 imagen seleccionada.\n\nPanamá requiere 2 imágenes por página (superior + inferior).\n\n¿Estás seguro de que deseas procesar con solo 1 imagen?')){

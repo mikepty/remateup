@@ -182,16 +182,24 @@ def extraer(archivo_paths, pais: str = "PA") -> list[dict]:
     if isinstance(archivo_paths, str):
         archivo_paths = [archivo_paths]
 
+    # Colombia + PDF: usar parser local (gratis, sin IA)
+    archivo_path = archivo_paths[0]
+    ext = archivo_path.split(".")[-1].lower()
+    if pais == "CO" and ext == "pdf":
+        from . import pdf_colombia_parser
+        print(f"[extraction] Colombia PDF: usando parser local (sin IA, gratis)")
+        resultado = pdf_colombia_parser.extraer_desde_pdf(archivo_path)
+        print(f"[extraction] Parser local extrajo {len(resultado)} aviso(s)")
+        return resultado
+
     # Varias imágenes de la misma página -> una llamada conjunta
     if len(archivo_paths) > 1:
         return _extraer_una_llamada(archivo_paths, pais)
 
-    archivo_path = archivo_paths[0]
-    ext = archivo_path.split(".")[-1].lower()
     if ext != "pdf":
         return _extraer_una_llamada([archivo_path], pais)
 
-    # PDF grande: dividir en bloques
+    # PDF grande: dividir en bloques (caso raro para Panamá)
     total_paginas = pdf_utils.contar_paginas(archivo_path)
     if total_paginas <= pdf_utils.PAGINAS_POR_BLOQUE:
         return _extraer_una_llamada([archivo_path], pais)
