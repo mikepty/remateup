@@ -718,10 +718,20 @@ function abrirEditor(id){
           <input id="ed_email_observaciones" value="${a.email_observaciones||''}" placeholder="correo@ejemplo.com" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
           <label style="font-size:10px;color:var(--gray);">Prevista (Mapa)</label>
           <input id="ed_prevista" value="${a.prevista||''}" placeholder="332 m2, PH Ejemplo, Corr: Bella Vista, Dist: Panama" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
+          <label style="font-size:10px;color:var(--gray);">Superficie</label>
+          <input id="ed_superficie" value="${a.superficie||''}" placeholder="ej. 332 M2" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
+          <label style="font-size:10px;color:var(--gray);">Plano</label>
+          <input id="ed_plano" value="${a.plano||''}" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
+          <label style="font-size:10px;color:var(--gray);">Lote/Casa</label>
+          <input id="ed_lote_casa" value="${a.lote_casa||''}" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
         </div>
         <div style="grid-column:1/-1;margin-top:8px;">
-          <label style="font-size:10px;color:var(--gray);">Descripcion</label>
-          <textarea id="ed_descripcion" rows="3" style="width:100%;padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">${a.descripcion||''}</textarea>
+          <label style="font-size:10px;color:var(--gray);">Descripcion (resumen / portada)</label>
+          <textarea id="ed_descripcion" rows="2" style="width:100%;padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">${a.descripcion||''}</textarea>
+        </div>
+        <div style="grid-column:1/-1;margin-top:8px;">
+          <label style="font-size:10px;color:var(--gray);">Descripcion completa del bien</label>
+          <textarea id="ed_descripcion_completa" rows="4" style="width:100%;padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">${a.descripcion_completa||''}</textarea>
         </div>
         <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end;">
           <button onclick="cerrarEditor()" class="btn btn-primary">Cancelar</button>
@@ -755,7 +765,11 @@ async function guardarEdicion(){
     provincia: $('ed_provincia').value,
     codigo_ubicacion_prensa: $('ed_codigo_ubicacion_prensa').value || null,
     finca_matr: $('ed_finca_matr').value,
+    superficie: $('ed_superficie').value || null,
+    plano: $('ed_plano').value || null,
+    lote_casa: $('ed_lote_casa').value || null,
     descripcion: $('ed_descripcion').value,
+    descripcion_completa: $('ed_descripcion_completa').value || null,
     estado: $('ed_estado').value,
     codigo_prensa: $('ed_codigo_prensa').value || null,
     email_observaciones: $('ed_email_observaciones').value || null,
