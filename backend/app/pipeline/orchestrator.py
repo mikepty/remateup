@@ -20,7 +20,15 @@ def procesar_documento(db: Session, documento: Documento) -> list[Aviso]:
         rutas = [documento.ruta_archivo]
         if documento.rutas_adicionales_json:
             rutas.extend(json.loads(documento.rutas_adicionales_json))
-        resultados = extraction.extraer(rutas, documento.pais)
+        salida_ocr = {}
+        resultados = extraction.extraer(rutas, documento.pais, salida_ocr=salida_ocr)
+        # Guardar el texto OCR en el documento (fuente para verificar/aprender)
+        if salida_ocr.get("texto"):
+            try:
+                documento.texto_ocr = salida_ocr["texto"][:50000]
+                db.commit()
+            except Exception:
+                db.rollback()
         audit.registrar(db, "extraction", "extraccion_completa",
                          f"{len(resultados)} aviso(s) extraído(s)", documento_id=documento.id)
     except Exception as e:

@@ -504,7 +504,7 @@ function cardAviso(a, pendiente){
             <div class="monto">${moneda(a.minimo)}</div>
           </div>
         </div>
-        <div style="margin-top:6px;font-size:10px;color:var(--gray);">${a.categoria||'—'} | ${a.superficie||'—'} | Exp: ${expCorto} | ${a.provincia||'—'} | ${labelFinca(a.pais)}: ${a.finca_matr||'—'}</div>
+        <div style="margin-top:6px;font-size:10px;color:var(--gray);">${a.categoria||'—'} | ${a.superficie||'—'} | Exp: ${expCorto} | ${a.provincia||'—'} | ${labelFinca(a.pais)}: ${a.finca_matr||'—'}${a.codigo_ubicacion_prensa?' | Cód.Ubic: '+a.codigo_ubicacion_prensa:''}</div>
       </div>
       <div class="aviso-footer">
         <button class="btn btn-primary" onclick="toggleDet(${a.id})">Ver</button>
@@ -528,8 +528,7 @@ function detalleCard(a){
     <div class="detalle-grid">
       <div class="campo"><span class="k">Fecha del Remate</span><span class="v">${a.fecha||'—'}</span></div>
       <div class="campo"><span class="k">Hora del Remate</span><span class="v">${a.hora||'—'}</span></div>
-      <div class="campo"><span class="k">Ubicacion</span><span class="v">${a.codigo_ubicacion||'—'}</span></div>
-      <div class="campo"><span class="k">Provincia/Depto</span><span class="v">${a.provincia||'—'}</span></div>
+      <div class="campo"><span class="k">Provincia</span><span class="v">${a.provincia||'—'}</span></div>
       <div class="campo"><span class="k">Juzgado</span><span class="v">${a.lugar||'—'}</span></div>
       <div class="campo"><span class="k">Tipo de proceso</span><span class="v">${a.proceso||'—'}</span></div>
       <div class="campo"><span class="k">Expediente</span><span class="v">${expCompleto}</span></div>
@@ -546,6 +545,7 @@ function detalleCard(a){
       <div class="campo"><span class="k">Categoria</span><span class="v">${a.categoria||'—'} ${a.categoria_codigo?'('+a.categoria_codigo+')':''}</span></div>
       <div class="campo"><span class="k">Lote/Casa</span><span class="v">${a.lote_casa||'—'}</span></div>
       <div class="campo"><span class="k">${labelFinca(a.pais)}</span><span class="v">${a.finca_matr||'—'}</span></div>
+      <div class="campo"><span class="k">Cód. Ubicación</span><span class="v">${a.codigo_ubicacion_prensa||'—'}</span></div>
       <div class="campo"><span class="k">Plano</span><span class="v">${a.plano||'—'}</span></div>
       <div class="campo"><span class="k">Superficie</span><span class="v">${a.superficie||'—'}</span></div>
     </div>
@@ -701,10 +701,10 @@ function abrirEditor(id){
           <input id="ed_minimo_porcentaje" type="number" value="${a.minimo_porcentaje||''}" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
           <label style="font-size:10px;color:var(--gray);">Provincia</label>
           <input id="ed_provincia" value="${a.provincia||''}" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
-          <label style="font-size:10px;color:var(--gray);">Codigo Ubicacion</label>
-          <input id="ed_codigo_ubicacion" value="${a.codigo_ubicacion||''}" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
-          <label style="font-size:10px;color:var(--gray);">Finca/Matr</label>
+          <label style="font-size:10px;color:var(--gray);">Finca/Folio</label>
           <input id="ed_finca_matr" value="${a.finca_matr||''}" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
+          <label style="font-size:10px;color:var(--gray);">Cód. Ubicación (periódico)</label>
+          <input id="ed_codigo_ubicacion_prensa" value="${a.codigo_ubicacion_prensa||''}" placeholder="ej. 8900" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
           <label style="font-size:10px;color:var(--gray);">Estado</label>
           <select id="ed_estado" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
             <option value="subido" ${a.estado==='subido'?'selected':''}>Subido</option>
@@ -753,7 +753,7 @@ async function guardarEdicion(){
     fianza_porcentaje: $('ed_fianza_porcentaje').value || null,
     minimo_porcentaje: $('ed_minimo_porcentaje').value || null,
     provincia: $('ed_provincia').value,
-    codigo_ubicacion: $('ed_codigo_ubicacion').value,
+    codigo_ubicacion_prensa: $('ed_codigo_ubicacion_prensa').value || null,
     finca_matr: $('ed_finca_matr').value,
     descripcion: $('ed_descripcion').value,
     estado: $('ed_estado').value,

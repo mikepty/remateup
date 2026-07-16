@@ -16,6 +16,7 @@ class Documento(Base):
     rutas_adicionales_json = Column(Text, nullable=True)  # JSON list de rutas extra (ej. mitad inferior)
     pais = Column(String(2), nullable=False)  # PA o CO
     estado = Column(String, default="recibido")  # recibido, procesando, completado, error
+    texto_ocr = Column(Text, nullable=True)  # texto crudo extraído por OCR (fuente para verificar/aprender)
     creado_en = Column(DateTime, default=datetime.utcnow)
 
     avisos = relationship("Aviso", back_populates="documento")
@@ -58,6 +59,7 @@ class Aviso(Base):
     email_observaciones = Column(String, nullable=True)  # correo electrónico extraído de observaciones
     descripcion_completa = Column(Text, nullable=True)  # descripción completa del bien (detalle largo)
     prevista = Column(Text, nullable=True)  # texto limpio de ubicación para Google Maps (ej. "332 m2, PH Princesa y Condesa del Mar, Corr: Bella Vista, Dist: Panamá")
+    codigo_ubicacion_prensa = Column(String, nullable=True)  # código de ubicación REAL impreso en el periódico, junto a la finca/folio (NO es el código de provincia; ej. "8900")
 
     # Metadatos del proceso
     confianza_promedio = Column(Float, default=0.0)

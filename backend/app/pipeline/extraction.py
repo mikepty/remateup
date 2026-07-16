@@ -11,7 +11,7 @@ from . import pdf_utils
 CAMPOS = [
     "pais", "codigo", "fecha", "hora", "proceso", "expediente", "lugar", "categoria",
     "demandante", "demandado", "lote_casa", "descripcion", "descripcion_completa",
-    "prevista", "superficie", "finca_matr", "codigo_ubicacion", "provincia", "plano", "base",
+    "prevista", "superficie", "finca_matr", "codigo_ubicacion_prensa", "provincia", "plano", "base",
     "fianza_porcentaje", "minimo_porcentaje", "fianza", "minimo", "codigo_fuente",
     "codigo_prensa", "email_observaciones",
 ]
@@ -97,6 +97,7 @@ Extrae CADA aviso de remate que encuentres, aunque su texto esté repartido en v
 REGLAS:
 - Transcribe SOLO lo que leas en las imágenes. Si un dato no está, usa null.
 - NUNCA inventes datos de otras fuentes.
+- TRANSCRIBE los nombres propios (edificios, PH, urbanizaciones, personas, juzgados) EXACTAMENTE como aparecen. NUNCA los cambies por nombres más comunes o parecidos (ej. si dice "COLUMBUS" escribe "COLUMBUS", NO "Colosal").
 - NUNCA devuelvas texto explicativo, notas ni mensajes como si fueran un aviso. Si NO encuentras ningún remate, devuelve exactamente: []
 - Extrae aunque falten algunos datos: si ves un remate pero no todos sus campos, inclúyelo con los datos que tengas y null en el resto.
 
@@ -105,6 +106,7 @@ Devuelve un array JSON. Cada aviso:
 
 pais: {"1" if pais == "PA" else "2"}, fecha: YYYY-MM-DD (año 2026), hora: HH:MM
 expediente: el número de expediente TAL CUAL aparece impreso en el aviso, completo (con año y guiones si los tiene). NO lo abrevies ni modifiques.
+codigo_ubicacion_prensa: el CÓDIGO DE UBICACIÓN impreso junto/después de la finca o folio (ej. "Finca 155700, Código de Ubicación 8900" -> "8900"). NO es el código de provincia. Si no aparece, null.
 categoria: CASA/APARTAMENTO/TERRENO/VEHICULO/MISCELANEO
 base: número plano sin $ ni comas (ej: 150000.00)
 fianza_porcentaje: {"10/20/25" if pais == "PA" else "40"}
@@ -139,6 +141,7 @@ REGLAS:
 - Usa SOLO el texto proporcionado. Si un dato no está en el texto, usa null.
 - El texto puede tener errores de OCR o venir en columnas desordenadas; usa tu criterio para agrupar los datos de cada aviso.
 - Extrae TODOS los remates que encuentres y llena TODOS los campos que estén presentes en el texto (no dejes vacío lo que sí aparece).
+- TRANSCRIBE los nombres propios (edificios, PH, urbanizaciones, personas, juzgados) EXACTAMENTE letra por letra como aparecen en el texto. NUNCA los cambies por nombres más comunes o parecidos (ej. si dice "PH COLUMBUS" escribe "COLUMBUS", NO "Colosal"; si dice "PH VITARE" no lo cambies a "Vitare Mare"). Copia el nombre tal cual.
 - NUNCA inventes. Si no hay remates, devuelve [].
 
 Devuelve un array JSON. Cada aviso:
@@ -146,6 +149,8 @@ Devuelve un array JSON. Cada aviso:
 
 pais: {"1" if pais == "PA" else "2"}, fecha: YYYY-MM-DD (año 2026), hora: HH:MM
 expediente: el número de expediente TAL CUAL aparece impreso en el aviso, completo (con año y guiones si los tiene, ej: "3286/2025", "07-353-2024"). NO lo abrevies ni modifiques.
+finca_matr: número de finca (Panamá) o matrícula inmobiliaria (Colombia).
+codigo_ubicacion_prensa: el CÓDIGO DE UBICACIÓN que aparece impreso en el aviso, normalmente JUNTO/DESPUÉS del número de finca o folio (ej. en "Finca 155700, Código de Ubicación 8900" -> "8900"). Es un dato REAL del periódico, NO es el código de provincia. Si no aparece, usa null.
 categoria: CASA/APARTAMENTO/TERRENO/VEHICULO/MISCELANEO
 base: número plano sin $ ni comas (ej: 150000.00)
 fianza_porcentaje: {"10/20/25" if pais == "PA" else "40"}
@@ -371,7 +376,7 @@ def _deduplicar(avisos: list[dict]) -> list[dict]:
     return unicos
 
 
-def extraer(archivo_paths, pais: str = "PA") -> list[dict]:
+def extraer(archivo_paths, pais: str = "PA", salida_ocr: dict = None) -> list[dict]:
     """Punto de entrada. Acepta path(s) de imagen o PDF.
 
     Flujo principal (con Google Vision):
@@ -380,8 +385,14 @@ def extraer(archivo_paths, pais: str = "PA") -> list[dict]:
     - PDF Colombia escaneado: Vision OCR (renderiza páginas) -> Claude estructura.
 
     Si Vision no está configurado, cae al método anterior (imágenes a Claude).
+
+    salida_ocr: dict opcional; si se provee, se guarda el texto OCR en
+    salida_ocr["texto"] (para almacenarlo como fuente de aprendizaje).
     """
     from ..config import GOOGLE_VISION_API_KEY
+
+    if salida_ocr is None:
+        salida_ocr = {}
 
     if isinstance(archivo_paths, str):
         archivo_paths = [archivo_paths]
@@ -408,6 +419,7 @@ def extraer(archivo_paths, pais: str = "PA") -> list[dict]:
             from . import ocr_vision
             print("[extraction] Colombia PDF escaneado: Vision OCR -> Claude")
             texto = ocr_vision.ocr_pdf(archivo_path)
+            salida_ocr["texto"] = texto
             resultado = _estructurar_texto_ocr(texto, pais)
             return _deduplicar(resultado)
 
@@ -431,6 +443,7 @@ def extraer(archivo_paths, pais: str = "PA") -> list[dict]:
             from . import ocr_vision
             print(f"[extraction] {len(archivo_paths)} imagen(es): Vision OCR -> Claude")
             texto = ocr_vision.ocr_multiples_imagenes(archivo_paths)
+            salida_ocr["texto"] = texto
             resultado = _estructurar_texto_ocr(texto, pais)
             return _deduplicar(resultado)
         # Sin Vision: fallback a tiles
@@ -442,6 +455,7 @@ def extraer(archivo_paths, pais: str = "PA") -> list[dict]:
     if GOOGLE_VISION_API_KEY:
         from . import ocr_vision
         texto = ocr_vision.ocr_pdf(archivo_path)
+        salida_ocr["texto"] = texto
         return _deduplicar(_estructurar_texto_ocr(texto, pais))
 
     total_paginas = pdf_utils.contar_paginas(archivo_path)

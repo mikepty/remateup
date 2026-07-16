@@ -17,7 +17,11 @@ def _migrar_columnas():
             ("email_observaciones", "VARCHAR"),
             ("descripcion_completa", "TEXT"),
             ("prevista", "TEXT"),
-        ]
+            ("codigo_ubicacion_prensa", "VARCHAR"),
+        ],
+        "documentos": [
+            ("texto_ocr", "TEXT"),
+        ],
     }
     insp = inspect(engine)
     with engine.connect() as conn:
@@ -97,12 +101,21 @@ def editar_aviso(aviso_id: int, campos: dict, db: Session = Depends(get_db)):
         "descripcion", "descripcion_completa", "fecha", "hora", "base",
         "fianza_porcentaje", "minimo_porcentaje",
         "fianza", "minimo", "categoria", "categoria_codigo", "provincia",
-        "codigo_ubicacion", "finca_matr", "lote_casa", "plano", "superficie", "estado",
+        "codigo_ubicacion", "codigo_ubicacion_prensa", "finca_matr", "lote_casa",
+        "plano", "superficie", "estado",
         "codigo_prensa", "email_observaciones", "codigo_fuente", "prevista"
     ]
 
-    # Contexto del aviso para que el aprendizaje entienda el patrón
+    # Contexto del aviso para que el aprendizaje entienda el patrón.
+    # Se prefiere el TEXTO OCR de la fuente (el periódico) para que el robot
+    # pueda "revisar la fuente" y aprender a leer correctamente lo que corrigió.
     contexto = (aviso.descripcion_completa or aviso.descripcion or "")[:1500]
+    try:
+        doc = db.query(Documento).get(aviso.documento_id) if aviso.documento_id else None
+        if doc and getattr(doc, "texto_ocr", None):
+            contexto = doc.texto_ocr[:4000]
+    except Exception:
+        pass
     codigo_prensa = aviso.codigo_prensa
 
     # Campos que NO son datos del periódico (no sirven para aprendizaje de OCR)
