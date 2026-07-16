@@ -136,14 +136,22 @@ def editar_aviso(aviso_id: int, campos: dict, db: Session = Depends(get_db)):
         return {"error": f"No se pudo guardar el aviso: {e}"}
 
     # === PASO 2 (SECUNDARIO): guardar correcciones para aprendizaje ===
-    # Va en su propio try/except: si algo falla aquí, la edición YA se guardó.
-    correcciones_guardadas = 0
+    # La edición YA se guardó. Todo aquí es best-effort y nunca rompe la edición.
+
+    # 2a: obtener contexto de la fuente (OCR) de forma aislada
+    contexto = ""
     try:
-        contexto = ""
         if documento_id:
             doc = db.query(Documento).get(documento_id)
             if doc and getattr(doc, "texto_ocr", None):
                 contexto = (doc.texto_ocr or "")[:4000]
+    except Exception:
+        db.rollback()
+        contexto = ""
+
+    # 2b: guardar las correcciones
+    correcciones_guardadas = 0
+    try:
         for campo, ant_str, nuevo_str in cambios_aprendibles:
             db.add(Correccion(
                 aviso_id=aviso_id, campo=campo,
