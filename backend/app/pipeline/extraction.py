@@ -382,7 +382,7 @@ def _extraer_una_llamada(archivo_paths: list[str], pais: str = "PA", intento: in
         text = ""
         with client.messages.stream(
             model=CLAUDE_MODEL,
-            max_tokens=16384,
+            max_tokens=32768,
             system="Eres un extractor de datos JSON. SIEMPRE responde ÚNICAMENTE con un array JSON válido. Sin texto adicional, sin explicaciones, sin markdown. Solo el array JSON puro comenzando con [ y terminando con ].",
             messages=[{"role": "user", "content": content}],
         ) as stream:
@@ -405,7 +405,12 @@ def _extraer_una_llamada(archivo_paths: list[str], pais: str = "PA", intento: in
     text = text.strip().replace("```json", "").replace("```", "").strip()
 
     # Log primeros 500 chars de la respuesta para debug
-    print(f"[extraction] Respuesta Claude (primeros 500 chars): {text[:500]}")
+    print(f"[extraction] Respuesta Claude (longitud: {len(text)} chars)")
+    print(f"[extraction] Primeros 500: {text[:500]}")
+
+    # Si respuesta vacía, error claro
+    if not text or len(text) < 5:
+        raise ValueError(f"Claude devolvió respuesta vacía o muy corta: '{text}'")
 
     # Si la respuesta contiene texto antes del JSON, extraer solo el JSON
     if not text.startswith("["):
