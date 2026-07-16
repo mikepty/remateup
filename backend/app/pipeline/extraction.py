@@ -59,6 +59,86 @@ Se adjuntan {num_tiles} FRAGMENTOS de UNA página de periódico, ordenados de AR
     return prompt
 
 
+def _construir_prompt_texto(pais: str) -> str:
+    """Prompt para estructurar TEXTO ya extraído por OCR (no imágenes)."""
+    campos_str = ", ".join(CAMPOS)
+    return f"""Abajo tienes el TEXTO extraído por OCR de una página de periódico de remates judiciales de {"Panamá" if pais == "PA" else "Colombia"}.
+
+Tu tarea: identificar los avisos de REMATE JUDICIAL en el texto y estructurarlos en JSON.
+
+Un AVISO DE REMATE dice "AVISO DE REMATE", "REMATE", "SUBASTA", e incluye base/avalúo, fianza, postura mínima, fecha, bien, juzgado, demandante, demandado. IGNORA edictos emplazatorios de citación, sucesiones y notificaciones que NO sean remates.
+
+REGLAS:
+- Usa SOLO el texto proporcionado. Si un dato no está en el texto, usa null.
+- El texto puede tener errores de OCR o venir en columnas desordenadas; usa tu criterio para agrupar los datos de cada aviso.
+- Extrae TODOS los remates que encuentres.
+- NUNCA inventes. Si no hay remates, devuelve [].
+
+Devuelve un array JSON. Cada aviso:
+{{"datos": {{{campos_str}}}, "confianza": {{mismas claves, valor 0-1}}}}
+
+pais: {"1" if pais == "PA" else "2"}, fecha: YYYY-MM-DD (año 2026), hora: HH:MM
+categoria: CASA/APARTAMENTO/TERRENO/VEHICULO/MISCELANEO
+base: número plano sin $ ni comas (ej: 150000.00)
+fianza_porcentaje: {"10/20/25" if pais == "PA" else "40"}
+minimo_porcentaje: 66.67(2/3)/50(mitad)/100(total)
+codigo_prensa: {"LP/ML/LE" if pais == "PA" else "SEJ"}-YYYY-MM-DD-PXX o null
+prevista: "[Área], [Nombre PH], Corr: [X], Dist: [Y]" para Google Maps"""
+
+
+def _estructurar_texto_ocr(texto_ocr: str, pais: str = "PA", intento: int = 0) -> list[dict]:
+    """Envía TEXTO (ya extraído por OCR) a Claude para estructurarlo en avisos.
+    Es text-only: barato, rápido y sin alucinaciones (Claude tiene el texto real)."""
+    import time
+    import anthropic
+
+    if not ANTHROPIC_API_KEY:
+        raise RuntimeError("ANTHROPIC_API_KEY no configurada")
+    if not texto_ocr or len(texto_ocr.strip()) < 20:
+        print("[extraction] Texto OCR vacío o muy corto")
+        return []
+
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, timeout=600.0)
+    prompt = _construir_prompt_texto(pais)
+
+    try:
+        response = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=16384,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": f"{prompt}\n\n=== TEXTO OCR ===\n{texto_ocr}"}],
+        )
+        text = "".join(block.text for block in response.content if block.type == "text")
+    except Exception as e:
+        error_str = str(e).lower()
+        if any(x in error_str for x in ["429", "rate", "overloaded", "529", "capacity"]):
+            if intento < 3:
+                wait_time = 20 * (intento + 1)
+                print(f"[extraction] Rate limit. Reintento {intento+1}/3, espera {wait_time}s...")
+                time.sleep(wait_time)
+                return _estructurar_texto_ocr(texto_ocr, pais, intento + 1)
+        raise
+
+    text = text.strip().replace("```json", "").replace("```", "").strip()
+    print(f"[extraction] Claude estructuró ({len(text)} chars): {text[:200]}")
+
+    if not text or text.strip() == "[]":
+        return []
+    if not text.startswith("["):
+        idx = text.find("[")
+        if idx != -1:
+            text = text[idx:]
+
+    resultado = _parsear_json(text)
+    for item in resultado:
+        item.setdefault("datos", {})
+        item.setdefault("confianza", {})
+        for campo in CAMPOS:
+            item["datos"].setdefault(campo, None)
+            item["confianza"].setdefault(campo, 0.0)
+    return resultado
+
+
 def _parsear_json(texto: str) -> list[dict]:
     """Parsea JSON con recuperación de respuestas truncadas."""
     try:
@@ -224,73 +304,89 @@ def _deduplicar(avisos: list[dict]) -> list[dict]:
 
 
 def extraer(archivo_paths, pais: str = "PA") -> list[dict]:
-    """Punto de entrada. Acepta path(s) de imagen o PDF."""
+    """Punto de entrada. Acepta path(s) de imagen o PDF.
+
+    Flujo principal (con Google Vision):
+    - Imágenes (Panamá): Vision OCR transcribe el texto -> Claude lo estructura.
+    - PDF Colombia con texto: parser local gratuito.
+    - PDF Colombia escaneado: Vision OCR (renderiza páginas) -> Claude estructura.
+
+    Si Vision no está configurado, cae al método anterior (imágenes a Claude).
+    """
+    from ..config import GOOGLE_VISION_API_KEY
+
     if isinstance(archivo_paths, str):
         archivo_paths = [archivo_paths]
 
     archivo_path = archivo_paths[0]
     ext = archivo_path.split(".")[-1].lower()
 
-    # Colombia + PDF: intentar parser local primero, si no hay texto usar Claude por bloques
+    # === COLOMBIA PDF ===
     if pais == "CO" and ext == "pdf":
         from pypdf import PdfReader
         reader = PdfReader(archivo_path)
         texto_test = (reader.pages[0].extract_text() or "").strip() if reader.pages else ""
 
         if len(texto_test) > 50:
-            # PDF con texto seleccionable: usar parser local (gratis)
+            # PDF con texto seleccionable: parser local (gratis)
             from . import pdf_colombia_parser
-            print(f"[extraction] Colombia PDF con texto: usando parser local (gratis)")
+            print("[extraction] Colombia PDF con texto: parser local (gratis)")
             resultado = pdf_colombia_parser.extraer_desde_pdf(archivo_path)
             print(f"[extraction] Parser local extrajo {len(resultado)} aviso(s)")
-            return resultado
-        else:
-            # PDF escaneado (solo imágenes): usar Claude por bloques
-            print(f"[extraction] Colombia PDF escaneado: usando Claude por bloques")
-            total_paginas = pdf_utils.contar_paginas(archivo_path)
-            bloques = pdf_utils.dividir_en_bloques(archivo_path, paginas_por_bloque=5)
-            resultado_total = []
-            try:
-                for i, bloque_path in enumerate(bloques, 1):
-                    try:
-                        parcial = _extraer_una_llamada([bloque_path], pais)
-                        print(f"[extraction] Bloque {i}/{len(bloques)}: {len(parcial)} aviso(s).")
-                        resultado_total.extend(parcial)
-                    except Exception as e:
-                        print(f"[extraction] ERROR bloque {i}: {e}")
-            finally:
-                pdf_utils.limpiar_bloques(bloques)
-            return resultado_total
+            return _deduplicar(resultado)
 
-    # Varias imágenes de la misma página (Panamá: superior + inferior).
-    # El tiler las apila en una sola página y las divide en tiles legibles,
-    # que se envían juntos en UNA llamada. Se deduplica por finca/expediente.
-    if len(archivo_paths) > 1:
+        # PDF escaneado: Vision OCR -> Claude
+        if GOOGLE_VISION_API_KEY:
+            from . import ocr_vision
+            print("[extraction] Colombia PDF escaneado: Vision OCR -> Claude")
+            texto = ocr_vision.ocr_pdf(archivo_path)
+            resultado = _estructurar_texto_ocr(texto, pais)
+            return _deduplicar(resultado)
+
+        # Sin Vision: fallback a Claude por bloques
+        print("[extraction] Colombia PDF escaneado (sin Vision): Claude por bloques")
+        bloques = pdf_utils.dividir_en_bloques(archivo_path, paginas_por_bloque=5)
+        resultado_total = []
+        try:
+            for i, bloque_path in enumerate(bloques, 1):
+                try:
+                    resultado_total.extend(_extraer_una_llamada([bloque_path], pais))
+                except Exception as e:
+                    print(f"[extraction] ERROR bloque {i}: {e}")
+        finally:
+            pdf_utils.limpiar_bloques(bloques)
+        return _deduplicar(resultado_total)
+
+    # === IMÁGENES (Panamá: superior + inferior, o imagen única) ===
+    if ext != "pdf":
+        if GOOGLE_VISION_API_KEY:
+            from . import ocr_vision
+            print(f"[extraction] {len(archivo_paths)} imagen(es): Vision OCR -> Claude")
+            texto = ocr_vision.ocr_multiples_imagenes(archivo_paths)
+            resultado = _estructurar_texto_ocr(texto, pais)
+            return _deduplicar(resultado)
+        # Sin Vision: fallback a tiles
+        print("[extraction] Imágenes (sin Vision): tiles a Claude")
         resultado = _extraer_una_llamada(archivo_paths, pais)
         return _deduplicar(resultado)
 
-    if ext != "pdf":
-        # Imagen única -> también se divide en tiles legibles
-        resultado = _extraer_una_llamada([archivo_path], pais)
-        return _deduplicar(resultado)
+    # === PDF no-Colombia (raro) ===
+    if GOOGLE_VISION_API_KEY:
+        from . import ocr_vision
+        texto = ocr_vision.ocr_pdf(archivo_path)
+        return _deduplicar(_estructurar_texto_ocr(texto, pais))
 
-    # PDF grande no-Colombia: dividir en bloques
     total_paginas = pdf_utils.contar_paginas(archivo_path)
     if total_paginas <= pdf_utils.PAGINAS_POR_BLOQUE:
         return _extraer_una_llamada([archivo_path], pais)
-
-    print(f"[extraction] PDF de {total_paginas} págs, dividiendo en bloques.")
     bloques = pdf_utils.dividir_en_bloques(archivo_path)
     resultado_total = []
     try:
         for i, bloque_path in enumerate(bloques, 1):
             try:
-                parcial = _extraer_una_llamada([bloque_path], pais)
-                print(f"[extraction] Bloque {i}/{len(bloques)}: {len(parcial)} aviso(s).")
-                resultado_total.extend(parcial)
+                resultado_total.extend(_extraer_una_llamada([bloque_path], pais))
             except Exception as e:
                 print(f"[extraction] ERROR bloque {i}: {e}")
     finally:
         pdf_utils.limpiar_bloques(bloques)
-
     return resultado_total

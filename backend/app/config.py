@@ -10,6 +10,7 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = "gemini-2.5-flash"
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL = "claude-sonnet-4-5-20250929"
+GOOGLE_VISION_API_KEY = os.environ.get("GOOGLE_VISION_API_KEY", "")
 
 # --- Base de datos ---
 DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{BASE_DIR}/data/remateup.db")
