@@ -151,6 +151,7 @@ def editar_aviso(aviso_id: int, campos: dict, db: Session = Depends(get_db)):
 
     # 2b: guardar las correcciones
     correcciones_guardadas = 0
+    error_aprendizaje = None
     try:
         for campo, ant_str, nuevo_str in cambios_aprendibles:
             db.add(Correccion(
@@ -163,8 +164,11 @@ def editar_aviso(aviso_id: int, campos: dict, db: Session = Depends(get_db)):
         db.commit()
     except Exception as e:
         db.rollback()
+        error_aprendizaje = str(e)[:300]
         print(f"[editar_aviso] Aviso guardado, pero falló el aprendizaje: {e}")
         correcciones_guardadas = 0
 
     return {"message": "Aviso actualizado", "aviso_id": aviso.id,
-            "correcciones_aprendidas": correcciones_guardadas}
+            "correcciones_aprendidas": correcciones_guardadas,
+            "cambios_detectados": len(cambios_aprendibles),
+            "error_aprendizaje": error_aprendizaje}
