@@ -22,15 +22,28 @@ def _migrar_columnas():
         "documentos": [
             ("texto_ocr", "TEXT"),
         ],
+        "correcciones": [
+            ("contexto", "TEXT"),
+            ("codigo_prensa", "VARCHAR"),
+            ("era_vacio", "BOOLEAN"),
+        ],
     }
     insp = inspect(engine)
     with engine.connect() as conn:
         for tabla, columnas in nuevas_columnas.items():
-            existentes = {c["name"] for c in insp.get_columns(tabla)}
+            try:
+                existentes = {c["name"] for c in insp.get_columns(tabla)}
+            except Exception:
+                # La tabla aún no existe (create_all debería haberla creado)
+                continue
             for col_name, col_type in columnas:
                 if col_name not in existentes:
-                    conn.execute(text(f'ALTER TABLE {tabla} ADD COLUMN {col_name} {col_type}'))
-                    conn.commit()
+                    try:
+                        conn.execute(text(f'ALTER TABLE {tabla} ADD COLUMN {col_name} {col_type}'))
+                        conn.commit()
+                        print(f"[migration] Columna agregada: {tabla}.{col_name}")
+                    except Exception as e:
+                        print(f"[migration] No se pudo agregar {tabla}.{col_name}: {e}")
 
 try:
     _migrar_columnas()
@@ -151,7 +164,6 @@ def editar_aviso(aviso_id: int, campos: dict, db: Session = Depends(get_db)):
 
     # 2b: guardar las correcciones
     correcciones_guardadas = 0
-    error_aprendizaje = None
     try:
         for campo, ant_str, nuevo_str in cambios_aprendibles:
             db.add(Correccion(
@@ -164,11 +176,8 @@ def editar_aviso(aviso_id: int, campos: dict, db: Session = Depends(get_db)):
         db.commit()
     except Exception as e:
         db.rollback()
-        error_aprendizaje = str(e)[:300]
         print(f"[editar_aviso] Aviso guardado, pero falló el aprendizaje: {e}")
         correcciones_guardadas = 0
 
     return {"message": "Aviso actualizado", "aviso_id": aviso.id,
-            "correcciones_aprendidas": correcciones_guardadas,
-            "cambios_detectados": len(cambios_aprendibles),
-            "error_aprendizaje": error_aprendizaje}
+            "correcciones_aprendidas": correcciones_guardadas}
