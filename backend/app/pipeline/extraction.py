@@ -22,10 +22,13 @@ SYSTEM_PROMPT = "Responde SOLO con un array JSON válido. Sin texto, sin explica
 
 
 def _cargar_aprendizaje(pais: str) -> str:
-    """Construye un bloque de APRENDIZAJE a partir de las correcciones que el
-    cliente ha hecho. Cada corrección es verdad de terreno (la info del cliente
-    es la misma que aparece en el periódico). Enseña a la IA qué campos suele
-    omitir o equivocar y con qué formato deben ir."""
+    """Construye un bloque de APRENDIZAJE a partir de las correcciones del cliente.
+
+    IMPORTANTE: NO inyecta valores específicos (nombres, fincas, montos) de
+    correcciones pasadas, porque eso hace que el modelo "filtre" datos de avisos
+    anteriores dentro de la extracción nueva (contaminación). En vez de eso, solo
+    indica QUÉ campos suele fallar para que el modelo les preste más atención,
+    leyendo SIEMPRE del texto del aviso actual."""
     pais_code = 1 if pais == "PA" else 2 if pais == "CO" else None
     if pais_code is None:
         return ""
@@ -38,7 +41,7 @@ def _cargar_aprendizaje(pais: str) -> str:
             correcciones = (db.query(Correccion)
                             .filter(Correccion.pais == pais_code)
                             .order_by(Correccion.creado_en.desc())
-                            .limit(120).all())
+                            .limit(200).all())
         finally:
             db.close()
     except Exception as e:
@@ -48,39 +51,24 @@ def _cargar_aprendizaje(pais: str) -> str:
     if not correcciones:
         return ""
 
-    # Agrupar por campo
-    por_campo = {}
-    for c in correcciones:
-        por_campo.setdefault(c.campo, []).append(c)
-
-    # Ordenar campos por frecuencia de corrección (más corregidos = más importantes)
-    campos_ordenados = sorted(por_campo.items(), key=lambda kv: len(kv[1]), reverse=True)
+    from collections import Counter
+    conteo = Counter(c.campo for c in correcciones)
+    vacios = Counter(c.campo for c in correcciones if c.era_vacio)
 
     lineas = []
-    for campo, lista in campos_ordenados[:10]:  # top 10 campos
-        veces = len(lista)
-        vacios = sum(1 for c in lista if c.era_vacio)
-        # Ejemplos de valores correctos (únicos, hasta 4)
-        vistos = set()
-        ejemplos = []
-        for c in lista:
-            v = (c.valor_nuevo or "").strip()
-            if v and v.lower() not in vistos:
-                vistos.add(v.lower())
-                ejemplos.append(v)
-            if len(ejemplos) >= 4:
-                break
-        ejemplos_str = "; ".join(f'"{e}"' for e in ejemplos) if ejemplos else "(varios)"
-        nota_vacio = f" (se dejó VACÍO {vacios} vez/veces y el cliente lo tuvo que llenar)" if vacios else ""
-        lineas.append(f"- {campo} (corregido {veces}x{nota_vacio}): ejemplos correctos -> {ejemplos_str}")
+    for campo, veces in conteo.most_common(10):
+        nv = vacios.get(campo, 0)
+        if nv >= max(1, veces / 2):
+            lineas.append(f"- {campo}: suele quedar VACÍO. Búscalo con cuidado en el texto del aviso y extráelo si está presente.")
+        else:
+            lineas.append(f"- {campo}: suele extraerse mal. Léelo con cuidado, EXACTO del texto del aviso actual.")
 
     bloque = (
-        "\n\n=== APRENDIZAJE (correcciones previas del cliente) ===\n"
-        "En extracciones anteriores el cliente CORRIGIÓ o COMPLETÓ estos campos. "
-        "La información que el cliente pone es la MISMA que está impresa en el periódico. "
-        "Presta ESPECIAL atención a estos campos para captarlos completos y con el formato correcto:\n"
-        + "\n".join(lineas) +
-        "\n\nAprende de estos ejemplos: busca con cuidado estos campos y respeta su formato para lograr el 100% de captación."
+        "\n\n=== APRENDIZAJE (campos que sueles fallar) ===\n"
+        "Estos campos han necesitado corrección en subidas anteriores. Préstales atención especial.\n"
+        "REGLA CRÍTICA: NO copies valores de otros avisos ni de subidas anteriores. "
+        "Cada dato debe leerse DIRECTAMENTE del texto del aviso que estás procesando AHORA:\n"
+        + "\n".join(lineas)
     )
     return bloque
 
@@ -96,7 +84,10 @@ Extrae CADA aviso de remate que encuentres, aunque su texto esté repartido en v
 
 REGLAS:
 - Transcribe SOLO lo que leas en las imágenes. Si un dato no está, usa null.
-- NUNCA inventes datos de otras fuentes.
+- NUNCA inventes datos de otras fuentes ni mezcles datos de avisos distintos.
+- Cada aviso es una UNIDAD: demandante y demandado son del MISMO remate (aparecen juntos, ej. "BANCO X Vs. PERSONA Y"). NO mezcles el demandante de un remate con el demandado de otro. NO uses colindantes/vecinos como partes.
+- Varias propiedades con UNA sola base = UN aviso (agrúpalas). Diferentes bases = avisos separados.
+- finca_matr = número de finca/folio; codigo_ubicacion_prensa = código de ubicación (distinto). No los confundas.
 - TRANSCRIBE los nombres propios (edificios, PH, urbanizaciones, personas, juzgados) EXACTAMENTE como aparecen. NUNCA los cambies por nombres más comunes o parecidos (ej. si dice "COLUMBUS" escribe "COLUMBUS", NO "Colosal").
 - NUNCA devuelvas texto explicativo, notas ni mensajes como si fueran un aviso. Si NO encuentras ningún remate, devuelve exactamente: []
 - Extrae aunque falten algunos datos: si ves un remate pero no todos sus campos, inclúyelo con los datos que tengas y null en el resto.
@@ -137,11 +128,19 @@ Tu tarea: identificar los avisos de REMATE JUDICIAL en el texto y estructurarlos
 
 Un AVISO DE REMATE dice "AVISO DE REMATE", "REMATE", "SUBASTA", e incluye base/avalúo, fianza, postura mínima, fecha, bien, juzgado, demandante, demandado. IGNORA edictos emplazatorios de citación, sucesiones y notificaciones que NO sean remates.
 
+=== REGLAS DE SEPARACIÓN Y AGRUPACIÓN (MUY IMPORTANTE) ===
+- Cada aviso de remate es una UNIDAD INDEPENDIENTE. NO mezcles datos de avisos distintos ni de edictos vecinos. Todos los datos de un aviso (demandante, demandado, finca, base, etc.) deben salir del MISMO bloque de texto del MISMO remate.
+- El demandante y el demandado pertenecen AL MISMO remate y suelen aparecer juntos (ej. "BANCO X Vs. PERSONA Y" o "demandante... contra... demandado..."). NUNCA tomes el demandante de un remate y el demandado de otro aviso/edicto distinto.
+- NO uses nombres de COLINDANTES o vecinos (los que "lindan" o "colindan" con la propiedad, mencionados en los linderos) como demandante ni demandado. Los colindantes NO son las partes del remate.
+- Varias propiedades con UN SOLO valor base/avalúo compartido = UN SOLO remate: agrúpalas TODAS en un mismo aviso y descríbelas juntas en la descripción.
+- Varias propiedades con DIFERENTES valores base = avisos SEPARADOS (uno por cada base), aunque compartan demandante y demandado.
+
 REGLAS:
-- Usa SOLO el texto proporcionado. Si un dato no está en el texto, usa null.
-- El texto puede tener errores de OCR o venir en columnas desordenadas; usa tu criterio para agrupar los datos de cada aviso.
+- Usa SOLO el texto proporcionado. Si un dato no está en el texto de ESE aviso, usa null. NUNCA rellenes con datos de otro aviso o de subidas anteriores.
+- El texto puede tener errores de OCR o venir en columnas desordenadas; agrupa con cuidado los datos de cada aviso sin mezclar con avisos contiguos.
 - Extrae TODOS los remates que encuentres y llena TODOS los campos que estén presentes en el texto (no dejes vacío lo que sí aparece).
-- TRANSCRIBE los nombres propios (edificios, PH, urbanizaciones, personas, juzgados) EXACTAMENTE letra por letra como aparecen en el texto. NUNCA los cambies por nombres más comunes o parecidos (ej. si dice "PH COLUMBUS" escribe "COLUMBUS", NO "Colosal"; si dice "PH VITARE" no lo cambies a "Vitare Mare"). Copia el nombre tal cual.
+- TRANSCRIBE los nombres propios (edificios, PH, urbanizaciones, personas, juzgados) EXACTAMENTE letra por letra como aparecen en el texto. NUNCA los cambies por nombres más comunes o parecidos (ej. si dice "PH COLUMBUS" escribe "COLUMBUS", NO "Colosal"). Copia el nombre tal cual.
+- finca_matr es el NÚMERO DE FINCA/FOLIO (ej. "13-209", "155700"). codigo_ubicacion_prensa es el CÓDIGO DE UBICACIÓN, un dato DISTINTO. NO pongas el código de ubicación en la finca ni viceversa; son campos separados.
 - NUNCA inventes. Si no hay remates, devuelve [].
 
 Devuelve un array JSON. Cada aviso:
