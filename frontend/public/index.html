@@ -145,28 +145,19 @@
     <div class="upload-section">
       <div>
         <label>Pais</label>
-        <select id="uploadPais">
+        <select id="uploadPais" onchange="actualizarAyudaUpload()">
           <option value="PA">Panama (periodico)</option>
           <option value="CO">Colombia (PDF)</option>
         </select>
       </div>
-      <div>
-        <label>Imagen SUPERIOR / PDF</label>
-        <input type="file" id="uploadPrincipal" accept="image/*,.pdf">
+      <div class="full">
+        <label id="lblUpload">Imagenes de la(s) pagina(s) EN ORDEN</label>
+        <input type="file" id="uploadImagenes" accept="image/*" multiple onchange="mostrarConteoArchivos()">
+        <div id="uploadHint" style="font-size:9px; color:var(--gray); margin-top:4px;"></div>
       </div>
-      <div>
-        <label>Imagen INFERIOR (opcional)</label>
-        <input type="file" id="uploadInferior" accept="image/*">
-      </div>
-      <div style="display:flex; gap:8px; align-items:flex-end;">
+      <div class="full" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <button onclick="subirDocumento()" id="btnSubir" class="btn btn-primary">Subir y Procesar</button>
-      </div>
-      <div class="full" style="margin-top:8px;">
-        <label>Multi-pagina (orden: sup1, inf1, sup2, inf2...)</label>
-        <div style="display:flex; gap:8px;">
-          <input type="file" id="uploadLote" accept="image/*" multiple style="flex:1; padding:4px;">
-          <button onclick="subirLote()" class="btn btn-warning">Subir Lote</button>
-        </div>
+        <span id="uploadFileCount" style="font-size:10px; color:var(--gray);"></span>
       </div>
     </div>
     <div id="uploadStatus"></div>
@@ -299,66 +290,66 @@ function minimoPart(a){ return a.pais===2?(a.fianza_porcentaje||40)+'%':moneda(a
 function labelLoc(p){ return p===1?'Provincia':'Departamento'; }
 function labelFinca(p){ return p===1?'Folio (Finca)':'Matricula inmobiliaria'; }
 
-// Upload
+// Upload — TODAS las imagenes (o PDF) seleccionadas se procesan como UN SOLO
+// documento continuo. Asi, si un remate empieza en una pagina y sigue en la
+// siguiente, se une en un solo aviso y los codigos quedan consecutivos.
+function actualizarAyudaUpload(){
+  const pais = $('uploadPais').value;
+  if(pais === 'PA'){
+    $('lblUpload').textContent = 'Imagenes de la(s) pagina(s) EN ORDEN: superior, inferior, y si un remate sigue en la pagina siguiente agrega tambien superior e inferior de esa pagina...';
+    $('uploadHint').textContent = 'Puedes seleccionar VARIAS imagenes a la vez (Ctrl/Shift para marcar varias). Se leen como una sola pagina continua para que un remate que sigue en la pagina siguiente no se corte.';
+    $('uploadImagenes').setAttribute('accept','image/*');
+  } else {
+    $('lblUpload').textContent = 'PDF(s) del boletin de remates (Colombia)';
+    $('uploadHint').textContent = 'Puedes seleccionar uno o varios PDF; se procesan juntos.';
+    $('uploadImagenes').setAttribute('accept','.pdf');
+  }
+  mostrarConteoArchivos();
+}
+
+function mostrarConteoArchivos(){
+  const inp = $('uploadImagenes');
+  const n = inp ? inp.files.length : 0;
+  $('uploadFileCount').textContent = n ? (n + ' archivo(s) seleccionado(s)') : '';
+}
+
 async function subirDocumento(){
   const pais = $('uploadPais').value;
-  const pri = $('uploadPrincipal');
-  const inf = $('uploadInferior');
-  if(!pri.files.length){ showStatus('uploadStatus','error','Selecciona al menos la imagen principal.'); return; }
+  const inp = $('uploadImagenes');
+  if(!inp.files.length){ showStatus('uploadStatus','error','Selecciona al menos un archivo.'); return; }
 
-  // Validacion: PDFs solo para Colombia
-  const esPDF = pri.files[0].name.toLowerCase().endsWith('.pdf');
-  if(pais === 'PA' && esPDF){
-    showStatus('uploadStatus','error','⚠️ Los PDFs solo se pueden procesar como Colombia. Selecciona "Colombia (PDF)" como pais, o sube imagenes para Panama.');
+  const archivos = Array.from(inp.files);
+  const hayPDF = archivos.some(f => f.name.toLowerCase().endsWith('.pdf'));
+
+  // Validaciones de coherencia pais/archivo
+  if(pais === 'PA' && hayPDF){
+    showStatus('uploadStatus','error','Los PDF solo se procesan como Colombia. Cambia el pais a Colombia, o sube imagenes para Panama.');
     return;
   }
-
-  // Validacion: si es Panama y son imagenes (no PDF), debe tener imagen inferior
-  if(pais === 'PA' && !esPDF && !inf.files.length){
-    showStatus('uploadStatus','error','⚠️ FALTA la imagen INFERIOR. En Panamá se requieren 2 imágenes (superior + inferior) de la misma página de periódico.');
-    if(!confirm('⚠️ Solo tienes 1 imagen seleccionada.\n\nPanamá requiere 2 imágenes por página (superior + inferior).\n\n¿Estás seguro de que deseas procesar con solo 1 imagen?')){
-      return;
-    }
-    showStatus('uploadStatus','loading','Procesando con 1 sola imagen...');
+  if(pais === 'CO' && !hayPDF){
+    showStatus('uploadStatus','error','Para Colombia sube el/los PDF del boletin.');
+    return;
+  }
+  if(pais === 'PA' && archivos.length === 1){
+    if(!confirm('Solo seleccionaste 1 imagen. En Panama cada pagina son 2 imagenes (superior + inferior). Si un remate continua en otra pagina, agrega tambien esas imagenes en orden.\n\nContinuar con 1 sola imagen?')) return;
   }
 
   const fd = new FormData();
-  fd.append('archivos', pri.files[0]);
-  if(inf.files.length) fd.append('archivos', inf.files[0]);
+  for(const f of archivos) fd.append('archivos', f);
   fd.append('pais', pais);
+
   $('btnSubir').disabled = true;
-  showStatus('uploadStatus','loading','Subiendo... (puede tardar hasta 2 min si el servidor estaba inactivo)');
+  showStatus('uploadStatus','loading','Subiendo '+archivos.length+' archivo(s)... (puede tardar hasta 2 min si el servidor estaba inactivo)');
   try{
     const r = await fetch(apiUrl('/documentos/subir'),{method:'POST',body:fd});
     if(!r.ok) throw new Error('HTTP '+r.status);
     const d = await r.json();
-    const numArchivos = d.archivos_recibidos || 1;
-    if(numArchivos > 1){
-      showStatus('uploadStatus','loading','Documento #'+d.documento_id+' procesando '+numArchivos+' imagenes (superior + inferior)...');
-    } else {
-      showStatus('uploadStatus','loading','Documento #'+d.documento_id+' procesando...');
-    }
-    pri.value=''; inf.value='';
+    const n = d.archivos_recibidos || archivos.length;
+    showStatus('uploadStatus','loading','Documento #'+d.documento_id+' procesando '+n+' archivo(s) como una sola secuencia continua...');
+    inp.value=''; mostrarConteoArchivos();
     monitorear(d.documento_id);
   }catch(e){ showStatus('uploadStatus','error','Error: '+e.message); }
   $('btnSubir').disabled = false;
-}
-
-async function subirLote(){
-  const pais = $('uploadPais').value;
-  const inp = $('uploadLote');
-  if(!inp.files.length){ showStatus('uploadStatus','error','Selecciona las imagenes.'); return; }
-  const fd = new FormData();
-  for(let i=0;i<inp.files.length;i++) fd.append('archivos',inp.files[i]);
-  fd.append('pais',pais);
-  showStatus('uploadStatus','loading','Subiendo '+inp.files.length+' archivos...');
-  try{
-    const r = await fetch(apiUrl('/documentos/subir_lote'),{method:'POST',body:fd});
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    const d = await r.json();
-    showStatus('uploadStatus','loading',d.total_paginas+' pagina(s) procesando...');
-    inp.value='';
-  }catch(e){ showStatus('uploadStatus','error','Error: '+e.message); }
 }
 
 async function monitorear(id, intentos=0){
@@ -669,6 +660,12 @@ function abrirEditor(id){
   avisoEditando = todosLosAvisos.find(x=>x.id===id);
   if(!avisoEditando) return;
   const a = avisoEditando;
+  // Opciones de categoria (marca la actual; si viene una rara, la conserva)
+  const cats = ['CASA','APARTAMENTO','TERRENO','VEHICULO','MISCELANEO'];
+  const catActual = (a.categoria||'').toString().toUpperCase();
+  let catOptions = '<option value="">—</option>';
+  if(catActual && !cats.includes(catActual)) catOptions += `<option value="${a.categoria}" selected>${a.categoria}</option>`;
+  catOptions += cats.map(c=>`<option value="${c}" ${catActual===c?'selected':''}>${c}</option>`).join('');
   const html = `
     <div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center;" onclick="cerrarEditor()">
       <div style="background:#fff;border-radius:12px;padding:20px;max-width:600px;width:90%;max-height:80vh;overflow-y:auto;" onclick="event.stopPropagation()">
@@ -705,6 +702,8 @@ function abrirEditor(id){
           <input id="ed_finca_matr" value="${a.finca_matr||''}" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
           <label style="font-size:10px;color:var(--gray);">Cód. Ubicación (periódico)</label>
           <input id="ed_codigo_ubicacion_prensa" value="${a.codigo_ubicacion_prensa||''}" placeholder="ej. 8900" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
+          <label style="font-size:10px;color:var(--gray);">Categoria</label>
+          <select id="ed_categoria" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">${catOptions}</select>
           <label style="font-size:10px;color:var(--gray);">Estado</label>
           <select id="ed_estado" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
             <option value="subido" ${a.estado==='subido'?'selected':''}>Subido</option>
@@ -764,6 +763,7 @@ async function guardarEdicion(){
     minimo_porcentaje: $('ed_minimo_porcentaje').value || null,
     provincia: $('ed_provincia').value,
     codigo_ubicacion_prensa: $('ed_codigo_ubicacion_prensa').value || null,
+    categoria: $('ed_categoria').value || null,
     finca_matr: $('ed_finca_matr').value,
     superficie: $('ed_superficie').value || null,
     plano: $('ed_plano').value || null,
@@ -901,6 +901,7 @@ async function cargarTodo(){
 }
 
 // Init
+actualizarAyudaUpload();
 conectar();
 </script>
 </body>

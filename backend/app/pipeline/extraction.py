@@ -124,7 +124,7 @@ def _construir_prompt_texto(pais: str) -> str:
     """Prompt para estructurar TEXTO ya extraído por OCR (no imágenes)."""
     campos_str = ", ".join(CAMPOS)
     aprendizaje = _cargar_aprendizaje(pais)
-    return f"""Abajo tienes el TEXTO extraído por OCR de una página de periódico de remates judiciales de {"Panamá" if pais == "PA" else "Colombia"}.
+    return f"""Abajo tienes el TEXTO extraído por OCR de una o varias páginas CONSECUTIVAS de periódico de remates judiciales de {"Panamá" if pais == "PA" else "Colombia"}. Las páginas vienen EN ORDEN y el texto de una página continúa en la siguiente (puede haber varias imágenes: mitad superior y mitad inferior de cada página, y luego la página siguiente). Léelo como un solo flujo continuo.
 
 Tu tarea: identificar los avisos de REMATE JUDICIAL en el texto y estructurarlos en JSON, captando el 100% de los datos de cada aviso.
 
@@ -136,6 +136,7 @@ Un AVISO DE REMATE dice "AVISO DE REMATE", "REMATE", "SUBASTA", e incluye base/a
 - NO uses nombres de COLINDANTES o vecinos (los que "lindan" o "colindan" con la propiedad, mencionados en los linderos) como demandante ni demandado. Los colindantes NO son las partes del remate.
 - Varias propiedades con UN SOLO valor base/avalúo compartido = UN SOLO remate: agrúpalas TODAS en un mismo aviso y descríbelas juntas en la descripción.
 - Varias propiedades con DIFERENTES valores base = avisos SEPARADOS (uno por cada base), aunque compartan demandante y demandado.
+- CONTINUACIÓN ENTRE PÁGINAS: un mismo aviso de remate puede EMPEZAR al final de una página/imagen y SEGUIR al inicio de la siguiente (el texto continúa más abajo). Si un remate aparece cortado y su continuación (más datos del mismo bien, mismo expediente, mismo demandante) está más adelante en el texto, ÚNELOS en UN SOLO aviso completo. NO lo dupliques ni lo dejes a medias por el corte de página.
 
 REGLAS:
 - Usa SOLO el texto proporcionado. Si un dato no está en el texto de ESE aviso, usa null. NUNCA rellenes con datos de otro aviso o de subidas anteriores.
@@ -414,44 +415,54 @@ def extraer(archivo_paths, pais: str = "PA", salida_ocr: dict = None) -> list[di
     archivo_path = archivo_paths[0]
     ext = archivo_path.split(".")[-1].lower()
 
-    # === COLOMBIA PDF ===
+    # === COLOMBIA PDF (uno o varios) ===
     if pais == "CO" and ext == "pdf":
         from pypdf import PdfReader
-        reader = PdfReader(archivo_path)
-        texto_test = (reader.pages[0].extract_text() or "").strip() if reader.pages else ""
-
-        if len(texto_test) > 50:
-            # PDF con texto seleccionable: parser local (gratis)
-            from . import pdf_colombia_parser
-            print("[extraction] Colombia PDF con texto: parser local (gratis)")
-            resultado = pdf_colombia_parser.extraer_desde_pdf(archivo_path)
-            print(f"[extraction] Parser local extrajo {len(resultado)} aviso(s)")
-            return _deduplicar(resultado)
-
-        # PDF escaneado: Vision OCR -> Claude
-        if GOOGLE_VISION_API_KEY:
-            from . import ocr_vision
-            print("[extraction] Colombia PDF escaneado: Vision OCR -> Claude")
-            texto = ocr_vision.ocr_pdf(archivo_path)
-            salida_ocr["texto"] = texto
-            resultado = _estructurar_texto_ocr(texto, pais)
-            if not resultado and _tiene_indicios_remate(texto):
-                print("[extraction] 0 avisos pero hay indicios de remate. Reintentando...")
-                resultado = _estructurar_texto_ocr(texto, pais)
-            return _deduplicar(resultado)
-
-        # Sin Vision: fallback a Claude por bloques
-        print("[extraction] Colombia PDF escaneado (sin Vision): Claude por bloques")
-        bloques = pdf_utils.dividir_en_bloques(archivo_path, paginas_por_bloque=5)
+        pdfs = [p for p in archivo_paths if p.split(".")[-1].lower() == "pdf"]
         resultado_total = []
-        try:
-            for i, bloque_path in enumerate(bloques, 1):
+        textos_ocr = []
+
+        for p in pdfs:
+            try:
+                reader = PdfReader(p)
+                texto_test = (reader.pages[0].extract_text() or "").strip() if reader.pages else ""
+            except Exception:
+                texto_test = ""
+
+            if len(texto_test) > 50:
+                # PDF con texto seleccionable: parser local (gratis)
+                from . import pdf_colombia_parser
+                print(f"[extraction] Colombia PDF con texto: parser local (gratis) -> {p}")
+                resultado_total.extend(pdf_colombia_parser.extraer_desde_pdf(p))
+            elif GOOGLE_VISION_API_KEY:
+                # PDF escaneado: Vision OCR (acumular texto para estructurar juntos)
+                from . import ocr_vision
+                print(f"[extraction] Colombia PDF escaneado: Vision OCR -> {p}")
+                textos_ocr.append(ocr_vision.ocr_pdf(p))
+            else:
+                # Sin Vision: fallback a Claude por bloques
+                print(f"[extraction] Colombia PDF escaneado (sin Vision): Claude por bloques -> {p}")
+                bloques = pdf_utils.dividir_en_bloques(p, paginas_por_bloque=5)
                 try:
-                    resultado_total.extend(_extraer_una_llamada([bloque_path], pais))
-                except Exception as e:
-                    print(f"[extraction] ERROR bloque {i}: {e}")
-        finally:
-            pdf_utils.limpiar_bloques(bloques)
+                    for i, bloque_path in enumerate(bloques, 1):
+                        try:
+                            resultado_total.extend(_extraer_una_llamada([bloque_path], pais))
+                        except Exception as e:
+                            print(f"[extraction] ERROR bloque {i}: {e}")
+                finally:
+                    pdf_utils.limpiar_bloques(bloques)
+
+        # Estructurar de una vez todo el texto OCR acumulado (varios PDFs escaneados)
+        if textos_ocr:
+            texto = "\n\n".join(textos_ocr)
+            salida_ocr["texto"] = texto
+            estructurado = _estructurar_texto_ocr(texto, pais)
+            if not estructurado and _tiene_indicios_remate(texto):
+                print("[extraction] 0 avisos pero hay indicios de remate. Reintentando...")
+                estructurado = _estructurar_texto_ocr(texto, pais)
+            resultado_total.extend(estructurado)
+
+        print(f"[extraction] Colombia: {len(resultado_total)} aviso(s) de {len(pdfs)} PDF(s)")
         return _deduplicar(resultado_total)
 
     # === IMÁGENES (Panamá: superior + inferior, o imagen única) ===
