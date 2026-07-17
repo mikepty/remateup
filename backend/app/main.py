@@ -85,33 +85,6 @@ def limpiar_base_datos(db: Session = Depends(get_db)):
     return {"message": "Base de datos limpiada correctamente", "status": "ok"}
 
 
-@app.get("/admin/debug_ultimo")
-def debug_ultimo_documento(db: Session = Depends(get_db)):
-    """Diagnóstico: toma el último documento, muestra cuánto texto OCR tiene y
-    re-ejecuta la estructuración mostrando la respuesta cruda de Claude."""
-    doc = db.query(Documento).order_by(Documento.id.desc()).first()
-    if not doc:
-        return {"error": "no hay documentos"}
-    texto = getattr(doc, "texto_ocr", None) or ""
-    resultado = {
-        "documento_id": doc.id,
-        "nombre": doc.nombre_archivo,
-        "pais": doc.pais,
-        "estado": doc.estado,
-        "texto_ocr_longitud": len(texto),
-        "texto_ocr_muestra": texto[:800],
-    }
-    if texto and len(texto) > 20:
-        try:
-            from .pipeline import extraction
-            avisos = extraction._estructurar_texto_ocr(texto, doc.pais)
-            resultado["avisos_extraidos"] = len(avisos)
-            resultado["primer_aviso"] = avisos[0]["datos"] if avisos else None
-        except Exception as e:
-            resultado["error_estructuracion"] = str(e)[:500]
-    return resultado
-
-
 @app.post("/admin/limpiar_aprendizaje")
 def limpiar_aprendizaje(db: Session = Depends(get_db)):
     """Borra TODAS las correcciones aprendidas (resetea el aprendizaje)."""

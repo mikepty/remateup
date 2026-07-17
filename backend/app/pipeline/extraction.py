@@ -177,6 +177,7 @@ def _estructurar_texto_ocr(texto_ocr: str, pais: str = "PA", intento: int = 0) -
         response = client.messages.create(
             model=CLAUDE_MODEL,
             max_tokens=16384,
+            temperature=0,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": f"{prompt}\n\n=== TEXTO OCR ===\n{texto_ocr}"}],
         )
@@ -353,6 +354,16 @@ def _extraer_una_llamada(archivo_paths: list[str], pais: str = "PA", intento: in
     return resultado
 
 
+def _tiene_indicios_remate(texto: str) -> bool:
+    """True si el texto OCR contiene señales claras de que hay avisos de remate."""
+    if not texto:
+        return False
+    t = texto.upper()
+    indicios = ["REMATE", "SUBASTA", "BASE DEL REMATE", "AVALUO", "AVALÚO",
+                "POSTURA", "SE VENDERA", "SE VENDERÁ", "MEJOR POSTOR"]
+    return sum(1 for i in indicios if i in t) >= 1
+
+
 def _deduplicar(avisos: list[dict]) -> list[dict]:
     """Elimina avisos duplicados (mismo expediente+finca) que pueden aparecer
     en tiles que se solapan."""
@@ -420,6 +431,9 @@ def extraer(archivo_paths, pais: str = "PA", salida_ocr: dict = None) -> list[di
             texto = ocr_vision.ocr_pdf(archivo_path)
             salida_ocr["texto"] = texto
             resultado = _estructurar_texto_ocr(texto, pais)
+            if not resultado and _tiene_indicios_remate(texto):
+                print("[extraction] 0 avisos pero hay indicios de remate. Reintentando...")
+                resultado = _estructurar_texto_ocr(texto, pais)
             return _deduplicar(resultado)
 
         # Sin Vision: fallback a Claude por bloques
@@ -444,6 +458,10 @@ def extraer(archivo_paths, pais: str = "PA", salida_ocr: dict = None) -> list[di
             texto = ocr_vision.ocr_multiples_imagenes(archivo_paths)
             salida_ocr["texto"] = texto
             resultado = _estructurar_texto_ocr(texto, pais)
+            # Reintento: si devolvió 0 pero el texto claramente tiene remates
+            if not resultado and _tiene_indicios_remate(texto):
+                print("[extraction] 0 avisos pero hay indicios de remate. Reintentando...")
+                resultado = _estructurar_texto_ocr(texto, pais)
             return _deduplicar(resultado)
         # Sin Vision: fallback a tiles
         print("[extraction] Imágenes (sin Vision): tiles a Claude")
