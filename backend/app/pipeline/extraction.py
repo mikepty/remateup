@@ -99,9 +99,11 @@ pais: {"1" if pais == "PA" else "2"}, fecha: YYYY-MM-DD (año 2026), hora: HH:MM
 expediente: el número de expediente TAL CUAL aparece impreso en el aviso, completo (con año y guiones si los tiene). NO lo abrevies ni modifiques.
 codigo_ubicacion_prensa: el CÓDIGO DE UBICACIÓN impreso junto/después de la finca o folio (ej. "Finca 155700, Código de Ubicación 8900" -> "8900"). NO es el código de provincia. Si no aparece, null.
 categoria: CASA/APARTAMENTO/TERRENO/VEHICULO/MISCELANEO
-base: número plano sin $ ni comas (ej: 150000.00)
-fianza_porcentaje: {"10/20/25" if pais == "PA" else "40"}
-minimo_porcentaje: 66.67(2/3)/50(mitad)/100(total)
+=== MONTOS (todo remate REAL los tiene: búscalos con cuidado antes de dejar null) ===
+Un aviso de remate SIEMPRE indica valor base, fianza y postura mínima. Si un aviso NO tiene NINGÚN monto, casi seguro NO es remate (es un edicto/citación) -> NO lo incluyas.
+base: el avalúo o base del remate. Búscalo tras "BASE DEL REMATE", "AVALÚO", "avaluado(a) en", "valor base", "por la suma de", "B/." o "$". Número plano sin $ ni comas ni B/. (ej: 150000.00).
+fianza_porcentaje: {"10/20/25" if pais == "PA" else "40"} -- % del depósito/consignación para participar. Búscalo tras "FIANZA", "consignar", "consignación", "depósito previo", "para participar" ({"Panamá: 10, 20 o 25" if pais == "PA" else "Colombia: siempre 40"}).
+minimo_porcentaje: 66.67(2/3)/50(mitad)/100(total) -- postura mínima admisible. Búscala tras "POSTURA MÍNIMA", "posturas admisibles", "no se admiten posturas inferiores", "dos terceras partes"(=66.67), "la mitad"(=50), "avalúo total"(=100).
 codigo_prensa: {"LP/ML/LE" if pais == "PA" else "SEJ"}-YYYY-MM-DD-PXX o null
 prevista: "[Área], [Nombre PH], Corr: [X], Dist: [Y]" para Google Maps{aprendizaje}"""
 
@@ -151,9 +153,11 @@ expediente: el número de expediente TAL CUAL aparece impreso en el aviso, compl
 finca_matr: número de finca (Panamá) o matrícula inmobiliaria (Colombia).
 codigo_ubicacion_prensa: el CÓDIGO DE UBICACIÓN que aparece impreso en el aviso, normalmente JUNTO/DESPUÉS del número de finca o folio (ej. en "Finca 155700, Código de Ubicación 8900" -> "8900"). Es un dato REAL del periódico, NO es el código de provincia. Si no aparece, usa null.
 categoria: CASA/APARTAMENTO/TERRENO/VEHICULO/MISCELANEO
-base: número plano sin $ ni comas (ej: 150000.00)
-fianza_porcentaje: {"10/20/25" if pais == "PA" else "40"}
-minimo_porcentaje: 66.67(2/3)/50(mitad)/100(total)
+=== MONTOS (todo remate REAL los tiene: búscalos con cuidado antes de dejar null) ===
+Un aviso de remate SIEMPRE indica valor base, fianza y postura mínima. Si un aviso NO tiene NINGÚN monto, casi seguro NO es remate (es un edicto/citación) -> NO lo incluyas.
+base: el avalúo o base del remate. Búscalo tras "BASE DEL REMATE", "AVALÚO", "avaluado(a) en", "valor base", "por la suma de", "B/." o "$". Número plano sin $ ni comas ni B/. (ej: 150000.00).
+fianza_porcentaje: {"10/20/25" if pais == "PA" else "40"} -- % del depósito/consignación para participar. Búscalo tras "FIANZA", "consignar", "consignación", "depósito previo", "para participar" ({"Panamá: 10, 20 o 25" if pais == "PA" else "Colombia: siempre 40"}).
+minimo_porcentaje: 66.67(2/3)/50(mitad)/100(total) -- postura mínima admisible. Búscala tras "POSTURA MÍNIMA", "posturas admisibles", "no se admiten posturas inferiores", "dos terceras partes"(=66.67), "la mitad"(=50), "avalúo total"(=100).
 codigo_prensa: {"LP/ML/LE" if pais == "PA" else "SEJ"}-YYYY-MM-DD-PXX o null
 prevista: "[Área], [Nombre PH], Corr: [X], Dist: [Y]" para Google Maps{aprendizaje}"""
 
