@@ -99,8 +99,8 @@ pais: {"1" if pais == "PA" else "2"}, fecha: YYYY-MM-DD (año 2026), hora: HH:MM
 expediente: el número de expediente TAL CUAL aparece impreso en el aviso, completo (con año y guiones si los tiene). NO lo abrevies ni modifiques.
 codigo_ubicacion_prensa: el CÓDIGO DE UBICACIÓN impreso junto/después de la finca o folio (ej. "Finca 155700, Código de Ubicación 8900" -> "8900"). NO es el código de provincia. Si no aparece, null.
 categoria: CASA/APARTAMENTO/TERRENO/VEHICULO/MISCELANEO
-=== MONTOS (todo remate REAL los tiene: búscalos con cuidado antes de dejar null) ===
-Un aviso de remate SIEMPRE indica valor base, fianza y postura mínima. Si un aviso NO tiene NINGÚN monto, casi seguro NO es remate (es un edicto/citación) -> NO lo incluyas.
+=== MONTOS (búscalos con cuidado; el OCR puede traerlos borrosos) ===
+Casi todo remate indica valor base, fianza y postura mínima; búscalos e inclúyelos. PERO si el OCR los trae ilegibles o incompletos, deja ese campo en null e IGUAL incluye el aviso. Lo que define un remate es su ENCABEZADO ("AVISO DE REMATE"/"REMATE"/"SUBASTA"), NO que los números se lean bien. NUNCA descartes un remate por no poder leer sus montos.
 base: el avalúo o base del remate. Búscalo tras "BASE DEL REMATE", "AVALÚO", "avaluado(a) en", "valor base", "por la suma de", "B/." o "$". Número plano sin $ ni comas ni B/. (ej: 150000.00).
 fianza_porcentaje: {"10/20/25" if pais == "PA" else "40"} -- % del depósito/consignación para participar. Búscalo tras "FIANZA", "consignar", "consignación", "depósito previo", "para participar" ({"Panamá: 10, 20 o 25" if pais == "PA" else "Colombia: siempre 40"}).
 minimo_porcentaje: 66.67(2/3)/50(mitad)/100(total) -- postura mínima admisible. Búscala tras "POSTURA MÍNIMA", "posturas admisibles", "no se admiten posturas inferiores", "dos terceras partes"(=66.67), "la mitad"(=50), "avalúo total"(=100).
@@ -128,7 +128,8 @@ def _construir_prompt_texto(pais: str) -> str:
 
 Tu tarea: identificar los avisos de REMATE JUDICIAL en el texto y estructurarlos en JSON, captando el 100% de los datos de cada aviso.
 
-Un AVISO DE REMATE dice "AVISO DE REMATE", "REMATE", "SUBASTA", e incluye base/avalúo, fianza, postura mínima, fecha, bien, juzgado, demandante, demandado. IGNORA edictos emplazatorios de citación, sucesiones y notificaciones que NO sean remates.
+Un AVISO DE REMATE se reconoce por su ENCABEZADO: dice "AVISO DE REMATE", "REMATE" o "SUBASTA" (aunque el OCR lo traiga dañado, ej. "AVISO DE BENATE" o "AVISO DE HEMATE" = AVISO DE REMATE). Normalmente trae base/avalúo, fianza, postura mínima, fecha, bien y juzgado. IGNORA los EDICTOS (emplazatorios, de citación, de sucesión) y notificaciones: esos empiezan con "EDICTO" o "EDICTO EMPLAZATORIO" y NO son remates.
+IMPORTANTE: en una misma página (sobre todo en clasificados) puede haber MUCHOS edictos y solo unos pocos remates mezclados. Extrae TODOS los remates que encuentres aunque estén rodeados de edictos; NO descartes un remate solo porque hay muchos edictos alrededor o porque el texto está desordenado.
 
 === REGLAS DE SEPARACIÓN Y AGRUPACIÓN (MUY IMPORTANTE) ===
 - Cada aviso de remate es una UNIDAD INDEPENDIENTE. NO mezcles datos de avisos distintos ni de edictos vecinos. Todos los datos de un aviso (demandante, demandado, finca, base, etc.) deben salir del MISMO bloque de texto del MISMO remate.
@@ -140,7 +141,7 @@ Un AVISO DE REMATE dice "AVISO DE REMATE", "REMATE", "SUBASTA", e incluye base/a
 
 REGLAS:
 - Usa SOLO el texto proporcionado abajo. Si un dato no está en el texto de ESE aviso, usa null. NUNCA rellenes un campo faltante con datos de otro aviso, de otra página, de otro documento, de subidas anteriores ni de tu conocimiento general. Es NORMAL y CORRECTO dejar campos en null cuando el periódico no los trae; es preferible un null antes que un dato inventado o prestado de otro aviso.
-- El texto puede tener errores de OCR o venir en columnas desordenadas; agrupa con cuidado los datos de cada aviso sin mezclar con avisos contiguos.
+- El texto puede venir MUY dañado por el OCR (letras y números mezclados, palabras partidas, tildes raras), sobre todo en páginas de clasificados densas. Aun así, identifica cada bloque de remate por su encabezado y extrae lo que sea legible; deja en null solo lo que de verdad no puedas leer. Agrupa con cuidado los datos de cada aviso sin mezclar con avisos contiguos, y NO inventes para rellenar lo ilegible.
 - Extrae TODOS los remates que encuentres y llena TODOS los campos que estén presentes en el texto (no dejes vacío lo que sí aparece).
 - TRANSCRIBE los nombres propios (edificios, PH, urbanizaciones, personas, juzgados) EXACTAMENTE letra por letra como aparecen en el texto. NUNCA los cambies por nombres más comunes o parecidos (ej. si dice "PH COLUMBUS" escribe "COLUMBUS", NO "Colosal"). Copia el nombre tal cual.
 - finca_matr es el NÚMERO DE FINCA/FOLIO (ej. "13-209", "155700"). codigo_ubicacion_prensa es el CÓDIGO DE UBICACIÓN, un dato DISTINTO. NO pongas el código de ubicación en la finca ni viceversa; son campos separados.
@@ -154,8 +155,8 @@ expediente: el número de expediente TAL CUAL aparece impreso en el aviso, compl
 finca_matr: número de finca (Panamá) o matrícula inmobiliaria (Colombia).
 codigo_ubicacion_prensa: el CÓDIGO DE UBICACIÓN que aparece impreso en el aviso, normalmente JUNTO/DESPUÉS del número de finca o folio (ej. en "Finca 155700, Código de Ubicación 8900" -> "8900"). Es un dato REAL del periódico, NO es el código de provincia. Si no aparece, usa null.
 categoria: CASA/APARTAMENTO/TERRENO/VEHICULO/MISCELANEO
-=== MONTOS (todo remate REAL los tiene: búscalos con cuidado antes de dejar null) ===
-Un aviso de remate SIEMPRE indica valor base, fianza y postura mínima. Si un aviso NO tiene NINGÚN monto, casi seguro NO es remate (es un edicto/citación) -> NO lo incluyas.
+=== MONTOS (búscalos con cuidado; el OCR puede traerlos borrosos) ===
+Casi todo remate indica valor base, fianza y postura mínima; búscalos e inclúyelos. PERO si el OCR los trae ilegibles o incompletos, deja ese campo en null e IGUAL incluye el aviso. Lo que define un remate es su ENCABEZADO ("AVISO DE REMATE"/"REMATE"/"SUBASTA"), NO que los números se lean bien. NUNCA descartes un remate por no poder leer sus montos.
 base: el avalúo o base del remate. Búscalo tras "BASE DEL REMATE", "AVALÚO", "avaluado(a) en", "valor base", "por la suma de", "B/." o "$". Número plano sin $ ni comas ni B/. (ej: 150000.00).
 fianza_porcentaje: {"10/20/25" if pais == "PA" else "40"} -- % del depósito/consignación para participar. Búscalo tras "FIANZA", "consignar", "consignación", "depósito previo", "para participar" ({"Panamá: 10, 20 o 25" if pais == "PA" else "Colombia: siempre 40"}).
 minimo_porcentaje: 66.67(2/3)/50(mitad)/100(total) -- postura mínima admisible. Búscala tras "POSTURA MÍNIMA", "posturas admisibles", "no se admiten posturas inferiores", "dos terceras partes"(=66.67), "la mitad"(=50), "avalúo total"(=100).
