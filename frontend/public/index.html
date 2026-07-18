@@ -151,12 +151,17 @@
         </select>
       </div>
       <div class="full">
-        <label id="lblUpload">Imagenes de la(s) pagina(s) EN ORDEN</label>
-        <input type="file" id="uploadImagenes" accept="image/*" multiple onchange="mostrarConteoArchivos()">
+        <label id="lblUpload">Agregar imagenes (en orden)</label>
+        <input type="file" id="uploadImagenes" accept="image/*" multiple onchange="agregarArchivos(event)">
         <div id="uploadHint" style="font-size:9px; color:var(--gray); margin-top:4px;"></div>
+      </div>
+      <div class="full">
+        <div style="font-size:10px; color:var(--gray); margin-bottom:3px; text-transform:uppercase; letter-spacing:.3px;">Archivos a procesar (en este orden)</div>
+        <div id="listaArchivos" style="border:1px solid var(--border); border-radius:6px; padding:8px; max-height:220px; overflow-y:auto; background:var(--bg);"></div>
       </div>
       <div class="full" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <button onclick="subirDocumento()" id="btnSubir" class="btn btn-primary">Subir y Procesar</button>
+        <button type="button" onclick="limpiarSeleccion()" class="btn btn-warning">Limpiar lista</button>
         <span id="uploadFileCount" style="font-size:10px; color:var(--gray);"></span>
       </div>
     </div>
@@ -290,48 +295,105 @@ function minimoPart(a){ return a.pais===2?(a.fianza_porcentaje||40)+'%':moneda(a
 function labelLoc(p){ return p===1?'Provincia':'Departamento'; }
 function labelFinca(p){ return p===1?'Folio (Finca)':'Matricula inmobiliaria'; }
 
-// Upload — TODAS las imagenes (o PDF) seleccionadas se procesan como UN SOLO
-// documento continuo. Asi, si un remate empieza en una pagina y sigue en la
-// siguiente, se une en un solo aviso y los codigos quedan consecutivos.
+// Upload — las imagenes/PDF se ACUMULAN en una lista (archivosSeleccionados) y
+// se procesan como UN SOLO documento continuo, en el orden de la lista. Asi el
+// cliente ve que archivos van cargados, puede reordenarlos y quitarlos antes de
+// procesar, y un remate que sigue en la pagina siguiente se une (codigos consecutivos).
+let archivosSeleccionados = [];
+
 function actualizarAyudaUpload(){
   const pais = $('uploadPais').value;
   if(pais === 'PA'){
-    $('lblUpload').textContent = 'Imagenes de la(s) pagina(s) EN ORDEN: superior, inferior, y si un remate sigue en la pagina siguiente agrega tambien superior e inferior de esa pagina...';
-    $('uploadHint').textContent = 'Puedes seleccionar VARIAS imagenes a la vez (Ctrl/Shift para marcar varias). Se leen como una sola pagina continua para que un remate que sigue en la pagina siguiente no se corte.';
+    $('lblUpload').textContent = 'Agregar imagenes de la(s) pagina(s) EN ORDEN (superior, inferior, y de la pagina siguiente si un remate continua)';
+    $('uploadHint').textContent = 'Puedes agregarlas de una en una o varias a la vez; se van SUMANDO a la lista de abajo (no se borran). Revisa el orden antes de procesar. Se leen como una sola pagina continua.';
     $('uploadImagenes').setAttribute('accept','image/*');
   } else {
-    $('lblUpload').textContent = 'PDF(s) del boletin de remates (Colombia)';
-    $('uploadHint').textContent = 'Puedes seleccionar uno o varios PDF; se procesan juntos.';
+    $('lblUpload').textContent = 'Agregar PDF(s) del boletin de remates (Colombia)';
+    $('uploadHint').textContent = 'Puedes agregar uno o varios PDF; se van sumando a la lista de abajo y se procesan juntos.';
     $('uploadImagenes').setAttribute('accept','.pdf');
   }
-  mostrarConteoArchivos();
+  renderListaArchivos();
 }
 
-function mostrarConteoArchivos(){
+function agregarArchivos(ev){
+  const nuevos = Array.from((ev.target && ev.target.files) || []);
+  for(const f of nuevos) archivosSeleccionados.push(f);
+  // Limpiar el input para poder seguir AGREGANDO sin perder lo ya cargado.
+  if(ev.target) ev.target.value = '';
+  renderListaArchivos();
+}
+
+function quitarArchivo(i){
+  archivosSeleccionados.splice(i, 1);
+  renderListaArchivos();
+}
+
+function moverArchivo(i, dir){
+  const j = i + dir;
+  if(j < 0 || j >= archivosSeleccionados.length) return;
+  const tmp = archivosSeleccionados[i];
+  archivosSeleccionados[i] = archivosSeleccionados[j];
+  archivosSeleccionados[j] = tmp;
+  renderListaArchivos();
+}
+
+function limpiarSeleccion(){
+  archivosSeleccionados = [];
   const inp = $('uploadImagenes');
-  const n = inp ? inp.files.length : 0;
-  $('uploadFileCount').textContent = n ? (n + ' archivo(s) seleccionado(s)') : '';
+  if(inp) inp.value = '';
+  renderListaArchivos();
+}
+
+function renderListaArchivos(){
+  const cont = $('listaArchivos');
+  if(!cont) return;
+  const pais = $('uploadPais').value;
+  const n = archivosSeleccionados.length;
+  $('uploadFileCount').textContent = n ? (n + ' archivo(s) en la lista') : '';
+  if(!n){
+    cont.innerHTML = '<div style="font-size:10px;color:var(--gray);text-align:center;padding:6px;">Aun no has agregado archivos. Agregalos en orden y apareceran aqui para que revises antes de procesar.</div>';
+    return;
+  }
+  let filas = '';
+  archivosSeleccionados.forEach((f, i) => {
+    let etiqueta;
+    if(pais === 'PA'){
+      const pagina = Math.floor(i / 2) + 1;
+      const mitad = (i % 2 === 0) ? 'Superior' : 'Inferior';
+      etiqueta = 'Pag ' + pagina + ' · ' + mitad;
+    } else {
+      etiqueta = 'PDF ' + (i + 1);
+    }
+    const nombre = (f.name || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    filas += '<div style="display:flex;align-items:center;gap:6px;padding:4px 2px;border-bottom:1px solid var(--border);font-size:11px;">'
+      + '<span style="min-width:82px;color:var(--navy);font-weight:700;">' + etiqueta + '</span>'
+      + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + nombre + '">' + (i+1) + '. ' + nombre + '</span>'
+      + '<button type="button" title="Subir en la lista" onclick="moverArchivo(' + i + ',-1)" ' + (i===0?'disabled':'') + ' style="border:1px solid var(--border);background:#fff;border-radius:4px;cursor:pointer;padding:1px 7px;">↑</button>'
+      + '<button type="button" title="Bajar en la lista" onclick="moverArchivo(' + i + ',1)" ' + (i===n-1?'disabled':'') + ' style="border:1px solid var(--border);background:#fff;border-radius:4px;cursor:pointer;padding:1px 7px;">↓</button>'
+      + '<button type="button" title="Quitar" onclick="quitarArchivo(' + i + ')" style="border:1px solid var(--red);background:#fff;color:var(--red);border-radius:4px;cursor:pointer;padding:1px 7px;">✕</button>'
+      + '</div>';
+  });
+  cont.innerHTML = filas;
 }
 
 async function subirDocumento(){
   const pais = $('uploadPais').value;
-  const inp = $('uploadImagenes');
-  if(!inp.files.length){ showStatus('uploadStatus','error','Selecciona al menos un archivo.'); return; }
+  if(!archivosSeleccionados.length){ showStatus('uploadStatus','error','Agrega al menos un archivo a la lista.'); return; }
 
-  const archivos = Array.from(inp.files);
+  const archivos = archivosSeleccionados.slice();
   const hayPDF = archivos.some(f => f.name.toLowerCase().endsWith('.pdf'));
 
   // Validaciones de coherencia pais/archivo
   if(pais === 'PA' && hayPDF){
-    showStatus('uploadStatus','error','Los PDF solo se procesan como Colombia. Cambia el pais a Colombia, o sube imagenes para Panama.');
+    showStatus('uploadStatus','error','Los PDF solo se procesan como Colombia. Cambia el pais a Colombia, o agrega imagenes para Panama.');
     return;
   }
   if(pais === 'CO' && !hayPDF){
-    showStatus('uploadStatus','error','Para Colombia sube el/los PDF del boletin.');
+    showStatus('uploadStatus','error','Para Colombia agrega el/los PDF del boletin.');
     return;
   }
   if(pais === 'PA' && archivos.length === 1){
-    if(!confirm('Solo seleccionaste 1 imagen. En Panama cada pagina son 2 imagenes (superior + inferior). Si un remate continua en otra pagina, agrega tambien esas imagenes en orden.\n\nContinuar con 1 sola imagen?')) return;
+    if(!confirm('Solo hay 1 imagen en la lista. En Panama cada pagina son 2 imagenes (superior + inferior). Si un remate continua en otra pagina, agrega tambien esas imagenes en orden.\n\nContinuar con 1 sola imagen?')) return;
   }
 
   const fd = new FormData();
@@ -346,7 +408,7 @@ async function subirDocumento(){
     const d = await r.json();
     const n = d.archivos_recibidos || archivos.length;
     showStatus('uploadStatus','loading','Documento #'+d.documento_id+' procesando '+n+' archivo(s) como una sola secuencia continua...');
-    inp.value=''; mostrarConteoArchivos();
+    limpiarSeleccion();
     monitorear(d.documento_id);
   }catch(e){ showStatus('uploadStatus','error','Error: '+e.message); }
   $('btnSubir').disabled = false;
