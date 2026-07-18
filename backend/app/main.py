@@ -189,3 +189,53 @@ def editar_aviso(aviso_id: int, campos: dict, db: Session = Depends(get_db)):
 
     return {"message": "Aviso actualizado", "aviso_id": aviso.id,
             "correcciones_aprendidas": correcciones_guardadas}
+
+
+@app.get("/admin/debug_doc/{documento_id}")
+def debug_documento(documento_id: int, db: Session = Depends(get_db)):
+    """Debug: devuelve el texto OCR guardado de un documento y un scan de keywords,
+    para diagnosticar por que se extrajeron pocos/ningun aviso."""
+    doc = db.query(Documento).get(documento_id)
+    if not doc:
+        return {"error": "documento no encontrado"}
+    texto = getattr(doc, "texto_ocr", None) or ""
+    t = texto.upper()
+    kws = ["REMATE", "SUBASTA", "BASE DEL REMATE", "AVALUO", "AVALÚO", "POSTURA",
+           "FIANZA", "CONSIGNAR", "DEMANDANTE", "DEMANDADO", "JUZGADO", "EDICTO",
+           "EMPLAZA", "SUCESION", "FINCA", "FOLIO REAL"]
+    conteo = {k: t.count(k) for k in kws}
+    return {
+        "id": doc.id,
+        "nombre": doc.nombre_archivo,
+        "pais": doc.pais,
+        "estado": doc.estado,
+        "texto_ocr_len": len(texto),
+        "keywords": conteo,
+        "texto_ocr": texto,
+    }
+
+
+@app.post("/admin/debug_reestructurar/{documento_id}")
+def debug_reestructurar(documento_id: int, db: Session = Depends(get_db)):
+    """Debug: re-ejecuta SOLO la estructuracion de Claude sobre el texto OCR ya
+    guardado (no vuelve a hacer OCR, no guarda nada). Sirve para probar cambios
+    de prompt contra el texto real sin re-subir imagenes."""
+    doc = db.query(Documento).get(documento_id)
+    if not doc:
+        return {"error": "documento no encontrado"}
+    texto = getattr(doc, "texto_ocr", None) or ""
+    if len(texto.strip()) < 20:
+        return {"error": "el documento no tiene texto_ocr guardado", "texto_ocr_len": len(texto)}
+    from .pipeline.extraction import _estructurar_texto_ocr, _deduplicar
+    try:
+        resultado = _deduplicar(_estructurar_texto_ocr(texto, doc.pais))
+    except Exception as e:
+        return {"error": f"fallo al estructurar: {e}"}
+    resumen = [{
+        "expediente": (r.get("datos") or {}).get("expediente"),
+        "demandante": (r.get("datos") or {}).get("demandante"),
+        "demandado": (r.get("datos") or {}).get("demandado"),
+        "base": (r.get("datos") or {}).get("base"),
+        "finca_matr": (r.get("datos") or {}).get("finca_matr"),
+    } for r in resultado]
+    return {"documento_id": doc.id, "avisos_encontrados": len(resultado), "resumen": resumen}
