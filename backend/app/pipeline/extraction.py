@@ -395,8 +395,12 @@ def _deduplicar(avisos: list[dict]) -> list[dict]:
 # En textos MUY largos y densos (varias imágenes / clasificados) Claude a veces
 # devuelve [] aunque haya remates. Por eso el texto se procesa en trozos <= este
 # tamaño y se combinan los resultados (la deduplicación quita repetidos del solape).
-LIMITE_CHARS_POR_LLAMADA = 38000
-OVERLAP_CHARS = 4000
+# Recordar: cada PÁGINA de periódico son 2 imágenes (superior + inferior) ~= 40k
+# caracteres. El límite se fija en 45k para que una página completa quepa en UN
+# trozo (no se parte a la mitad), y el solape (8k) es amplio para que un remate que
+# sigue de una página a la siguiente no se corte entre trozos.
+LIMITE_CHARS_POR_LLAMADA = 45000
+OVERLAP_CHARS = 8000
 
 
 def _dividir_texto(texto: str, limite: int = LIMITE_CHARS_POR_LLAMADA, overlap: int = OVERLAP_CHARS) -> list[str]:
