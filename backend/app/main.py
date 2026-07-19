@@ -226,9 +226,9 @@ def debug_reestructurar(documento_id: int, db: Session = Depends(get_db)):
     texto = getattr(doc, "texto_ocr", None) or ""
     if len(texto.strip()) < 20:
         return {"error": "el documento no tiene texto_ocr guardado", "texto_ocr_len": len(texto)}
-    from .pipeline.extraction import _estructurar_texto_ocr, _deduplicar
+    from .pipeline.extraction import _estructurar_texto_largo, _deduplicar
     try:
-        resultado = _deduplicar(_estructurar_texto_ocr(texto, doc.pais))
+        resultado = _deduplicar(_estructurar_texto_largo(texto, doc.pais))
     except Exception as e:
         return {"error": f"fallo al estructurar: {e}"}
     resumen = [{
@@ -239,3 +239,26 @@ def debug_reestructurar(documento_id: int, db: Session = Depends(get_db)):
         "finca_matr": (r.get("datos") or {}).get("finca_matr"),
     } for r in resultado]
     return {"documento_id": doc.id, "avisos_encontrados": len(resultado), "resumen": resumen}
+
+
+@app.post("/admin/reprocesar_doc/{documento_id}")
+def reprocesar_doc(documento_id: int, db: Session = Depends(get_db)):
+    """Admin: re-ejecuta el pipeline COMPLETO (OCR + estructura por trozos +
+    guardar) sobre un documento ya subido, usando las imagenes que siguen en
+    disco. Borra los avisos previos de ese documento para no duplicar."""
+    from .pipeline.orchestrator import procesar_documento
+    doc = db.query(Documento).get(documento_id)
+    if not doc:
+        return {"error": "documento no encontrado"}
+    previos = db.query(Aviso).filter(Aviso.documento_id == documento_id).all()
+    ids = [a.id for a in previos]
+    if ids:
+        db.query(Aprobacion).filter(Aprobacion.aviso_id.in_(ids)).delete(synchronize_session=False)
+        db.query(Auditoria).filter(Auditoria.aviso_id.in_(ids)).delete(synchronize_session=False)
+    db.query(Aviso).filter(Aviso.documento_id == documento_id).delete(synchronize_session=False)
+    db.commit()
+    try:
+        avisos = procesar_documento(db, doc)
+        return {"documento_id": documento_id, "avisos_creados": len(avisos)}
+    except Exception as e:
+        return {"error": f"fallo al reprocesar: {e}"}

@@ -392,6 +392,58 @@ def _deduplicar(avisos: list[dict]) -> list[dict]:
     return unicos
 
 
+# En textos MUY largos y densos (varias imágenes / clasificados) Claude a veces
+# devuelve [] aunque haya remates. Por eso el texto se procesa en trozos <= este
+# tamaño y se combinan los resultados (la deduplicación quita repetidos del solape).
+LIMITE_CHARS_POR_LLAMADA = 38000
+OVERLAP_CHARS = 4000
+
+
+def _dividir_texto(texto: str, limite: int = LIMITE_CHARS_POR_LLAMADA, overlap: int = OVERLAP_CHARS) -> list[str]:
+    """Divide un texto largo en trozos <= limite, cortando en un salto de línea
+    cuando es posible, con un solape para no partir un aviso entre dos trozos."""
+    if len(texto) <= limite:
+        return [texto]
+    trozos = []
+    inicio = 0
+    n = len(texto)
+    while inicio < n:
+        fin = min(inicio + limite, n)
+        if fin < n:
+            # Buscar un corte "limpio" hacia atrás (doble salto, luego simple)
+            corte = texto.rfind("\n\n", inicio + limite - overlap, fin)
+            if corte == -1:
+                corte = texto.rfind("\n", inicio + limite - overlap, fin)
+            if corte != -1 and corte > inicio:
+                fin = corte
+        trozos.append(texto[inicio:fin])
+        if fin >= n:
+            break
+        inicio = max(fin - overlap, inicio + 1)  # solape para no cortar un aviso
+    return trozos
+
+
+def _estructurar_texto_largo(texto_ocr: str, pais: str = "PA") -> list[dict]:
+    """Estructura texto OCR que puede ser largo. Si excede el límite, lo procesa
+    en trozos con solape y combina; si no, hace una sola llamada. La deduplicación
+    posterior (en extraer) elimina los repetidos que caigan en el solape."""
+    if not texto_ocr:
+        return []
+    trozos = _dividir_texto(texto_ocr)
+    if len(trozos) == 1:
+        return _estructurar_texto_ocr(texto_ocr, pais)
+    print(f"[extraction] Texto largo ({len(texto_ocr)} chars) -> {len(trozos)} trozos de <= {LIMITE_CHARS_POR_LLAMADA}")
+    combinado = []
+    for i, trozo in enumerate(trozos, 1):
+        try:
+            parcial = _estructurar_texto_ocr(trozo, pais)
+            print(f"[extraction] Trozo {i}/{len(trozos)}: {len(parcial)} aviso(s)")
+            combinado.extend(parcial)
+        except Exception as e:
+            print(f"[extraction] ERROR trozo {i}: {e}")
+    return combinado
+
+
 def extraer(archivo_paths, pais: str = "PA", salida_ocr: dict = None) -> list[dict]:
     """Punto de entrada. Acepta path(s) de imagen o PDF.
 
@@ -457,10 +509,10 @@ def extraer(archivo_paths, pais: str = "PA", salida_ocr: dict = None) -> list[di
         if textos_ocr:
             texto = "\n\n".join(textos_ocr)
             salida_ocr["texto"] = texto
-            estructurado = _estructurar_texto_ocr(texto, pais)
+            estructurado = _estructurar_texto_largo(texto, pais)
             if not estructurado and _tiene_indicios_remate(texto):
                 print("[extraction] 0 avisos pero hay indicios de remate. Reintentando...")
-                estructurado = _estructurar_texto_ocr(texto, pais)
+                estructurado = _estructurar_texto_largo(texto, pais)
             resultado_total.extend(estructurado)
 
         print(f"[extraction] Colombia: {len(resultado_total)} aviso(s) de {len(pdfs)} PDF(s)")
@@ -473,11 +525,11 @@ def extraer(archivo_paths, pais: str = "PA", salida_ocr: dict = None) -> list[di
             print(f"[extraction] {len(archivo_paths)} imagen(es): Vision OCR -> Claude")
             texto = ocr_vision.ocr_multiples_imagenes(archivo_paths)
             salida_ocr["texto"] = texto
-            resultado = _estructurar_texto_ocr(texto, pais)
+            resultado = _estructurar_texto_largo(texto, pais)
             # Reintento: si devolvió 0 pero el texto claramente tiene remates
             if not resultado and _tiene_indicios_remate(texto):
                 print("[extraction] 0 avisos pero hay indicios de remate. Reintentando...")
-                resultado = _estructurar_texto_ocr(texto, pais)
+                resultado = _estructurar_texto_largo(texto, pais)
             return _deduplicar(resultado)
         # Sin Vision: fallback a tiles
         print("[extraction] Imágenes (sin Vision): tiles a Claude")
@@ -489,7 +541,7 @@ def extraer(archivo_paths, pais: str = "PA", salida_ocr: dict = None) -> list[di
         from . import ocr_vision
         texto = ocr_vision.ocr_pdf(archivo_path)
         salida_ocr["texto"] = texto
-        return _deduplicar(_estructurar_texto_ocr(texto, pais))
+        return _deduplicar(_estructurar_texto_largo(texto, pais))
 
     total_paginas = pdf_utils.contar_paginas(archivo_path)
     if total_paginas <= pdf_utils.PAGINAS_POR_BLOQUE:
