@@ -15,6 +15,74 @@ from ..config import GOOGLE_VISION_API_KEY
 VISION_URL = "https://vision.googleapis.com/v1/images:annotate"
 
 
+def _texto_de_bloque(block: dict) -> str:
+    """Reconstruye el texto de un bloque. Cada 'word' de Vision es una palabra;
+    concatenamos sus símbolos (caracteres) sin espacio y separamos las palabras
+    con un espacio (o salto de línea según el break detectado)."""
+    partes = []
+    for para in block.get("paragraphs", []):
+        for word in para.get("words", []):
+            syms = word.get("symbols", [])
+            palabra = "".join(s.get("text", "") for s in syms)
+            partes.append(palabra)
+            brk = ""
+            if syms:
+                brk = ((syms[-1].get("property", {}) or {}).get("detectedBreak", {}) or {}).get("type", "")
+            if brk in ("EOL_SURE_SPACE", "LINE_BREAK"):
+                partes.append("\n")
+            elif brk == "HYPHEN":
+                partes.append("")  # palabra cortada a fin de línea: unir sin espacio
+            else:
+                partes.append(" ")  # por defecto, separar palabras con espacio
+    return "".join(partes)
+
+
+def _reconstruir_por_columnas(anotacion: dict) -> str:
+    """Reordena los bloques por COLUMNA (izquierda->derecha) y, dentro de cada
+    columna, de arriba->abajo. Esto evita que Vision mezcle (interleave) las
+    columnas de un periódico, que es lo que destroza los avisos de remate.
+
+    En páginas de una sola columna el resultado es prácticamente igual al texto
+    plano (todos los bloques caen en la misma columna y se ordenan por y)."""
+    bloques = []
+    ancho = 0
+    for page in anotacion.get("pages", []):
+        ancho = max(ancho, page.get("width", 0) or 0)
+        for block in page.get("blocks", []):
+            verts = (block.get("boundingBox", {}) or {}).get("vertices", []) or []
+            xs = [v.get("x", 0) for v in verts]
+            ys = [v.get("y", 0) for v in verts]
+            if not xs or not ys:
+                continue
+            texto = _texto_de_bloque(block).strip()
+            if texto:
+                bloques.append({"x": min(xs), "y": min(ys), "texto": texto})
+                ancho = max(ancho, max(xs))
+    if not bloques:
+        return ""
+
+    # Detectar columnas agrupando los bordes izquierdos (x) con una tolerancia.
+    tol = max(ancho * 0.12, 30)
+    xs_orden = sorted(b["x"] for b in bloques)
+    centros = []  # x representativo de cada columna, de izquierda a derecha
+    for x in xs_orden:
+        if not centros or x - centros[-1] > tol:
+            centros.append(x)
+
+    def col_idx(x):
+        best, best_d = 0, None
+        for i, cx in enumerate(centros):
+            d = abs(x - cx)
+            if best_d is None or d < best_d:
+                best_d, best = d, i
+        return best
+
+    for b in bloques:
+        b["col"] = col_idx(b["x"])
+    bloques.sort(key=lambda b: (b["col"], b["y"]))
+    return "\n".join(b["texto"] for b in bloques)
+
+
 def _ocr_imagen_bytes(data: bytes) -> str:
     """Envía una imagen (bytes) a Vision y devuelve el texto detectado."""
     if not GOOGLE_VISION_API_KEY:
@@ -42,7 +110,18 @@ def _ocr_imagen_bytes(data: bytes) -> str:
     if "error" in r0:
         raise RuntimeError(f"Vision API error: {r0['error'].get('message', 'desconocido')}")
     anotacion = r0.get("fullTextAnnotation", {})
-    return anotacion.get("text", "")
+    plano = anotacion.get("text", "") or ""
+    # Reconstruir por columnas para no mezclar columnas del periódico.
+    try:
+        por_columnas = _reconstruir_por_columnas(anotacion)
+    except Exception as e:
+        print(f"[ocr_vision] Reconstruccion por columnas fallo, uso texto plano: {e}")
+        por_columnas = ""
+    # Solo usar la versión por columnas si conservó una cantidad de texto
+    # razonable (evita perder contenido si algo salió mal).
+    if por_columnas and len(por_columnas) >= 0.85 * len(plano):
+        return por_columnas
+    return plano
 
 
 def ocr_imagen(ruta: str) -> str:
