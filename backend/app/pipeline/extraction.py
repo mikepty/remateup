@@ -169,42 +169,99 @@ codigo_prensa: {"LP/ML/LE" if pais == "PA" else "SEJ"}-YYYY-MM-DD-PXX o null
 prevista: "[Área], [Nombre PH], Corr: [X], Dist: [Y]" para Google Maps{aprendizaje}"""
 
 
-def _estructurar_texto_ocr(texto_ocr: str, pais: str = "PA", intento: int = 0) -> list[dict]:
-    """Envía TEXTO (ya extraído por OCR) a Claude para estructurarlo en avisos.
-    Es text-only: barato, rápido y sin alucinaciones (Claude tiene el texto real)."""
+def _llamar_claude(prompt_completo: str, intento: int = 0) -> str:
+    """Llama a Claude (Anthropic) con un prompt de texto y devuelve el texto crudo."""
     import time
     import anthropic
 
-    if not ANTHROPIC_API_KEY:
-        raise RuntimeError("ANTHROPIC_API_KEY no configurada")
-    if not texto_ocr or len(texto_ocr.strip()) < 20:
-        print("[extraction] Texto OCR vacío o muy corto")
-        return []
-
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, timeout=600.0)
-    prompt = _construir_prompt_texto(pais)
-
     try:
         response = client.messages.create(
             model=CLAUDE_MODEL,
             max_tokens=16384,
             temperature=0,
             system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": f"{prompt}\n\n=== TEXTO OCR ===\n{texto_ocr}"}],
+            messages=[{"role": "user", "content": prompt_completo}],
         )
-        text = "".join(block.text for block in response.content if block.type == "text")
+        return "".join(block.text for block in response.content if block.type == "text")
     except Exception as e:
         error_str = str(e).lower()
         if any(x in error_str for x in ["429", "rate", "overloaded", "529", "capacity"]):
             if intento < 3:
                 wait_time = 20 * (intento + 1)
-                print(f"[extraction] Rate limit. Reintento {intento+1}/3, espera {wait_time}s...")
+                print(f"[extraction] Claude rate limit. Reintento {intento+1}/3, espera {wait_time}s...")
                 time.sleep(wait_time)
-                return _estructurar_texto_ocr(texto_ocr, pais, intento + 1)
+                return _llamar_claude(prompt_completo, intento + 1)
         raise
 
+
+def _llamar_gemini(prompt_completo: str, intento: int = 0) -> str:
+    """Llama a Gemini (Google AI, capa gratuita) con el MISMO prompt y devuelve
+    el texto crudo. requests ya es dependencia (lo usa ocr_vision)."""
+    import time
+    import requests
+    from ..config import GEMINI_API_KEY, GEMINI_MODEL
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+    body = {
+        "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+        "contents": [{"role": "user", "parts": [{"text": prompt_completo}]}],
+        "generationConfig": {
+            "temperature": 0,
+            "maxOutputTokens": 16384,
+            "responseMimeType": "application/json",
+        },
+    }
+    resp = requests.post(url, params={"key": GEMINI_API_KEY}, json=body, timeout=600)
+    if resp.status_code in (429, 500, 503) and intento < 3:
+        wait_time = 20 * (intento + 1)
+        print(f"[extraction] Gemini {resp.status_code}. Reintento {intento+1}/3, espera {wait_time}s...")
+        time.sleep(wait_time)
+        return _llamar_gemini(prompt_completo, intento + 1)
+    resp.raise_for_status()
+    data = resp.json()
+    cand = (data.get("candidates") or [{}])[0]
+    parts = ((cand.get("content") or {}).get("parts")) or []
+    text = "".join(p.get("text", "") for p in parts)
+    if not text.strip():
+        raise RuntimeError(f"Gemini sin texto (finishReason={cand.get('finishReason')})")
+    return text
+
+
+def _llamar_ia(prompt_completo: str) -> tuple[str, str]:
+    """Despacha al motor de IA según MOTOR_IA, con fallback automático al otro
+    si el primero falla (sin saldo, sin cuota, caído). Devuelve (texto, motor)."""
+    from ..config import ANTHROPIC_API_KEY as CK, GEMINI_API_KEY as GK, MOTOR_IA
+
+    orden = ["claude", "gemini"] if MOTOR_IA == "claude" else ["gemini", "claude"]
+    disponibles = [m for m in orden if (GK if m == "gemini" else CK)]
+    if not disponibles:
+        raise RuntimeError("Ni GEMINI_API_KEY ni ANTHROPIC_API_KEY configuradas")
+
+    ultimo_error = None
+    for motor in disponibles:
+        try:
+            if motor == "gemini":
+                return _llamar_gemini(prompt_completo), motor
+            return _llamar_claude(prompt_completo), motor
+        except Exception as e:
+            print(f"[extraction] Motor {motor} falló: {str(e)[:200]}")
+            ultimo_error = e
+    raise ultimo_error
+
+
+def _estructurar_texto_ocr(texto_ocr: str, pais: str = "PA") -> list[dict]:
+    """Envía TEXTO (ya extraído por OCR) a la IA para estructurarlo en avisos.
+    Es text-only: barato, rápido y sin alucinaciones (el modelo tiene el texto real)."""
+    if not texto_ocr or len(texto_ocr.strip()) < 20:
+        print("[extraction] Texto OCR vacío o muy corto")
+        return []
+
+    prompt = _construir_prompt_texto(pais)
+    text, motor = _llamar_ia(f"{prompt}\n\n=== TEXTO OCR ===\n{texto_ocr}")
+
     text = text.strip().replace("```json", "").replace("```", "").strip()
-    print(f"[extraction] Claude estructuró ({len(text)} chars): {text[:200]}")
+    print(f"[extraction] {motor} estructuró ({len(text)} chars): {text[:200]}")
 
     if not text or text.strip() == "[]":
         return []

@@ -7,10 +7,15 @@ load_dotenv(BASE_DIR / ".env")  # carga variables desde backend/.env si existe
 
 # --- IA ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-CLAUDE_MODEL = "claude-sonnet-4-5-20250929"
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-5-20250929")
 GOOGLE_VISION_API_KEY = os.environ.get("GOOGLE_VISION_API_KEY", "")
+# Motor para ESTRUCTURAR el texto OCR en avisos:
+#   "auto"   = Gemini primero (capa gratuita) y Claude de respaldo si falla
+#   "gemini" = solo intenta Gemini primero
+#   "claude" = Claude primero, Gemini de respaldo
+MOTOR_IA = os.environ.get("MOTOR_IA", "auto").strip().lower()
 
 # --- Base de datos ---
 DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{BASE_DIR}/data/remateup.db")
