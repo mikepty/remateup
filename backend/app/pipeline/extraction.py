@@ -3,6 +3,7 @@ Agente de Extracción — usa Claude (Anthropic) para leer imágenes/PDFs de
 avisos de remate judicial y extraer datos estructurados.
 """
 import json
+import re
 import base64
 import pathlib
 from ..config import ANTHROPIC_API_KEY, CLAUDE_MODEL
@@ -370,25 +371,96 @@ def _tiene_indicios_remate(texto: str) -> bool:
     return sum(1 for i in indicios if i in t) >= 1
 
 
+def _solo_digitos(v) -> str:
+    return re.sub(r"\D", "", str(v or ""))
+
+
+def _norm_nombre(v) -> str:
+    t = str(v or "").upper()
+    for a, b in (("Á", "A"), ("É", "E"), ("Í", "I"), ("Ó", "O"), ("Ú", "U"), ("Ñ", "N")):
+        t = t.replace(a, b)
+    return re.sub(r"[^A-Z0-9]", "", t)
+
+
+def _base_num(d: dict) -> float | None:
+    try:
+        return float(str(d.get("base")).replace(",", "").replace("$", "").strip())
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def _es_mismo_aviso(d1: dict, d2: dict) -> bool:
+    """Compara dos avisos extraídos tolerando variantes del OCR (el mismo aviso
+    puede salir dos veces -- por el solape físico de las fotos superior/inferior
+    o por el corte del texto en trozos -- con el expediente o la base leídos
+    ligeramente distinto en cada pasada)."""
+    # Misma finca (el identificador más estable del bien) = mismo aviso
+    f1, f2 = _solo_digitos(d1.get("finca_matr")), _solo_digitos(d2.get("finca_matr"))
+    if len(f1) >= 4 and f1 == f2:
+        return True
+
+    b1, b2 = _base_num(d1), _base_num(d2)
+    bases_compatibles = b1 is None or b2 is None or abs(b1 - b2) < 0.01
+
+    # Mismo expediente con base igual (o ilegible en uno) = mismo aviso.
+    # OJO: mismo expediente con DOS bases distintas legibles son avisos
+    # separados a propósito (regla del cliente), NO se tocan.
+    e1, e2 = _solo_digitos(d1.get("expediente")), _solo_digitos(d2.get("expediente"))
+    if len(e1) >= 5 and e1 == e2 and bases_compatibles:
+        return True
+
+    # Mismas partes (demandado idéntico, demandante igual o vacío en uno) y
+    # bases compatibles = mismo aviso re-leído sin finca/expediente.
+    ddo1, ddo2 = _norm_nombre(d1.get("demandado")), _norm_nombre(d2.get("demandado"))
+    dte1, dte2 = _norm_nombre(d1.get("demandante")), _norm_nombre(d2.get("demandante"))
+    if ddo1 and ddo1 == ddo2 and (dte1 == dte2 or not dte1 or not dte2) and bases_compatibles:
+        return True
+
+    return False
+
+
+# Campos que indican que el aviso trae información real (si TODOS están vacíos,
+# es un fragmento sin identidad -- ruido del OCR, no un aviso utilizable).
+_CAMPOS_IDENTIDAD = ["expediente", "finca_matr", "demandante", "demandado"]
+
+
+def _completitud(item: dict) -> int:
+    d = item.get("datos", {})
+    claves = ["expediente", "finca_matr", "base", "demandante", "demandado",
+              "fecha", "hora", "descripcion", "lugar", "provincia"]
+    return sum(1 for c in claves if d.get(c) not in (None, "", "null"))
+
+
+def _fusionar(mejor: dict, otro: dict) -> None:
+    """Rellena en 'mejor' los campos vacíos con lo que sí trae 'otro' (son el
+    MISMO aviso leído dos veces, así que completar nulls no mezcla avisos)."""
+    for campo in CAMPOS:
+        if mejor["datos"].get(campo) in (None, "") and otro["datos"].get(campo) not in (None, ""):
+            mejor["datos"][campo] = otro["datos"][campo]
+            mejor["confianza"][campo] = otro.get("confianza", {}).get(campo, 0.5)
+
+
 def _deduplicar(avisos: list[dict]) -> list[dict]:
-    """Elimina avisos duplicados (mismo expediente+finca) que pueden aparecer
-    en tiles que se solapan."""
-    vistos = set()
-    unicos = []
+    """Colapsa avisos duplicados (mismo aviso extraído dos veces con variantes
+    de OCR) quedándose con el más completo y rellenando sus campos vacíos con
+    los del otro. Descarta fragmentos sin ninguna identidad."""
+    unicos: list[dict] = []
     for item in avisos:
         d = item.get("datos", {})
-        finca = str(d.get("finca_matr") or "").strip()
-        exp = str(d.get("expediente") or "").strip()
-        clave = f"{finca}|{exp}"
-        # Si no tiene ni finca ni expediente, no podemos deduplicar -> incluir
-        if clave == "|":
-            unicos.append(item)
+        # Fragmento sin identidad: ni expediente, ni finca, ni partes -> ruido
+        if all(str(d.get(c) or "").strip() in ("", "null", "None") for c in _CAMPOS_IDENTIDAD):
+            print("[extraction] Descartado fragmento sin identidad (sin expediente/finca/partes)")
             continue
-        if clave not in vistos:
-            vistos.add(clave)
+        duplicado = next((u for u in unicos if _es_mismo_aviso(d, u.get("datos", {}))), None)
+        if duplicado is None:
             unicos.append(item)
+        elif _completitud(item) > _completitud(duplicado):
+            _fusionar(item, duplicado)
+            unicos[unicos.index(duplicado)] = item
+            print(f"[extraction] Duplicado fusionado (gana el nuevo): exp={d.get('expediente')}, finca={d.get('finca_matr')}")
         else:
-            print(f"[extraction] Duplicado descartado: exp={exp}, finca={finca}")
+            _fusionar(duplicado, item)
+            print(f"[extraction] Duplicado fusionado: exp={d.get('expediente')}, finca={d.get('finca_matr')}")
     return unicos
 
 
@@ -427,24 +499,99 @@ def _dividir_texto(texto: str, limite: int = LIMITE_CHARS_POR_LLAMADA, overlap: 
     return trozos
 
 
+# Encabezado de un aviso de remate en el texto OCR. Solo MAYÚSCULAS (los
+# encabezados impresos van en mayúscula; las menciones internas tipo "el
+# presente aviso de remate" van en minúscula). Tolera OCR dañado en la R/M
+# ("AVISO DE BENATE", "AVISO DE HEMATE").
+_RE_ENCABEZADO_REMATE = re.compile(r"AVISO\s+DE\s+[A-Z]{0,2}E[MN]ATE")
+# Chars de contexto que se conservan ANTES de cada encabezado al cortar (ahí
+# suele venir el número de negocio/expediente, ej. "NEGOCIO N.63539-23 AVISO DE REMATE")
+_CONTEXTO_PREVIO = 150
+
+
+def _posiciones_avisos(texto: str) -> list[int]:
+    """Posiciones donde EMPIEZA un aviso de remate (encabezado en mayúsculas,
+    descartando menciones internas precedidas por 'presente'/'fija')."""
+    posiciones = []
+    for m in _RE_ENCABEZADO_REMATE.finditer(texto):
+        previo = texto[max(0, m.start() - 30):m.start()].upper()
+        if "PRESENTE" in previo or "FIJA" in previo:
+            continue
+        posiciones.append(m.start())
+    return posiciones
+
+
+def _segmentar_por_avisos(texto: str) -> list[str] | None:
+    """Corta el texto EN los encabezados de aviso (no a mitad de un aviso).
+    Devuelve segmentos contiguos que cubren el 100% del texto (el material
+    entre avisos -- edictos, etc. -- queda pegado al segmento anterior y Claude
+    lo ignora). Si no hay al menos 2 encabezados, devuelve None (usar fallback)."""
+    posiciones = _posiciones_avisos(texto)
+    if len(posiciones) < 2:
+        return None
+    cortes = [0]
+    for p in posiciones[1:]:
+        c = max(p - _CONTEXTO_PREVIO, 0)
+        # No crear segmentos triviales ni retroceder
+        if c - cortes[-1] > 500:
+            cortes.append(c)
+    if len(cortes) < 2:
+        return None
+    return [texto[a:b] for a, b in zip(cortes, cortes[1:] + [len(texto)])]
+
+
+def _agrupar_segmentos(segmentos: list[str], limite: int = LIMITE_CHARS_POR_LLAMADA) -> list[str]:
+    """Junta segmentos contiguos en lotes <= limite (una llamada por lote).
+    Como los cortes caen en encabezados, NO hace falta solape entre lotes:
+    ningún aviso queda partido y ninguno se procesa dos veces (menos tokens)."""
+    lotes, actual = [], ""
+    for s in segmentos:
+        if len(s) > limite:
+            # Segmento gigante (raro): cae al divisor clásico con solape
+            if actual:
+                lotes.append(actual)
+                actual = ""
+            lotes.extend(_dividir_texto(s))
+        elif actual and len(actual) + len(s) > limite:
+            lotes.append(actual)
+            actual = s
+        else:
+            actual += s  # segmentos contiguos: concatenar preserva el texto original
+    if actual:
+        lotes.append(actual)
+    return lotes
+
+
 def _estructurar_texto_largo(texto_ocr: str, pais: str = "PA") -> list[dict]:
-    """Estructura texto OCR que puede ser largo. Si excede el límite, lo procesa
-    en trozos con solape y combina; si no, hace una sola llamada. La deduplicación
-    posterior (en extraer) elimina los repetidos que caigan en el solape."""
+    """Estructura texto OCR que puede ser largo. Si excede el límite por llamada,
+    lo corta EN LOS ENCABEZADOS de aviso (sin solape, sin avisos partidos) y
+    procesa cada lote; si no encuentra encabezados, cae al corte clásico con
+    solape. La deduplicación posterior (en extraer) limpia cualquier repetido."""
     if not texto_ocr:
         return []
-    trozos = _dividir_texto(texto_ocr)
-    if len(trozos) == 1:
+    if len(texto_ocr) <= LIMITE_CHARS_POR_LLAMADA:
         return _estructurar_texto_ocr(texto_ocr, pais)
-    print(f"[extraction] Texto largo ({len(texto_ocr)} chars) -> {len(trozos)} trozos de <= {LIMITE_CHARS_POR_LLAMADA}")
+
+    segmentos = _segmentar_por_avisos(texto_ocr)
+    if segmentos:
+        lotes = _agrupar_segmentos(segmentos)
+        print(f"[extraction] Texto largo ({len(texto_ocr)} chars) -> {len(segmentos)} avisos-segmento "
+              f"-> {len(lotes)} lote(s) cortados en encabezados (sin solape)")
+    else:
+        lotes = _dividir_texto(texto_ocr)
+        print(f"[extraction] Texto largo ({len(texto_ocr)} chars) sin encabezados detectables "
+              f"-> {len(lotes)} trozos con solape (método clásico)")
+
+    if len(lotes) == 1:
+        return _estructurar_texto_ocr(lotes[0], pais)
     combinado = []
-    for i, trozo in enumerate(trozos, 1):
+    for i, lote in enumerate(lotes, 1):
         try:
-            parcial = _estructurar_texto_ocr(trozo, pais)
-            print(f"[extraction] Trozo {i}/{len(trozos)}: {len(parcial)} aviso(s)")
+            parcial = _estructurar_texto_ocr(lote, pais)
+            print(f"[extraction] Lote {i}/{len(lotes)}: {len(parcial)} aviso(s)")
             combinado.extend(parcial)
         except Exception as e:
-            print(f"[extraction] ERROR trozo {i}: {e}")
+            print(f"[extraction] ERROR lote {i}: {e}")
     return combinado
 
 

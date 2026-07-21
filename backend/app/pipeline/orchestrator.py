@@ -25,7 +25,7 @@ def procesar_documento(db: Session, documento: Documento) -> list[Aviso]:
         # Guardar el texto OCR en el documento (fuente para verificar/aprender)
         if salida_ocr.get("texto"):
             try:
-                documento.texto_ocr = salida_ocr["texto"][:50000]
+                documento.texto_ocr = salida_ocr["texto"][:300000]
                 db.commit()
             except Exception:
                 db.rollback()
