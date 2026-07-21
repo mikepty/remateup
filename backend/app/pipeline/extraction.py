@@ -100,6 +100,8 @@ pais: {"1" if pais == "PA" else "2"}, fecha: YYYY-MM-DD (año 2026), hora: HH:MM
 expediente: el número de expediente TAL CUAL aparece impreso en el aviso, completo (con año y guiones si los tiene). NO lo abrevies ni modifiques.
 codigo_ubicacion_prensa: el CÓDIGO DE UBICACIÓN impreso junto/después de la finca o folio (ej. "Finca 155700, Código de Ubicación 8900" -> "8900"). NO es el código de provincia. Si no aparece, null.
 categoria: CASA/APARTAMENTO/TERRENO/VEHICULO/MISCELANEO
+descripcion: RESUMEN CORTO de portada (máx ~15 palabras): tipo de bien + nombre del edificio/PH/urbanización + corregimiento/distrito. SIN linderos, SIN medidas, SIN colindantes.
+descripcion_completa: la descripción COMPLETA del bien tal como aparece en el aviso (aquí sí va todo el detalle).
 === MONTOS (búscalos con cuidado; el OCR puede traerlos borrosos) ===
 Casi todo remate indica valor base, fianza y postura mínima; búscalos e inclúyelos. PERO si el OCR los trae ilegibles o incompletos, deja ese campo en null e IGUAL incluye el aviso. Lo que define un remate es su ENCABEZADO ("AVISO DE REMATE"/"REMATE"/"SUBASTA"), NO que los números se lean bien. NUNCA descartes un remate por no poder leer sus montos.
 base: el avalúo o base del remate. Búscalo tras "BASE DEL REMATE", "AVALÚO", "avaluado(a) en", "valor base", "por la suma de", "B/." o "$". Número plano sin $ ni comas ni B/. (ej: 150000.00).
@@ -156,6 +158,8 @@ expediente: el número de expediente TAL CUAL aparece impreso en el aviso, compl
 finca_matr: número de finca (Panamá) o matrícula inmobiliaria (Colombia).
 codigo_ubicacion_prensa: el CÓDIGO DE UBICACIÓN que aparece impreso en el aviso, normalmente JUNTO/DESPUÉS del número de finca o folio (ej. en "Finca 155700, Código de Ubicación 8900" -> "8900"). Es un dato REAL del periódico, NO es el código de provincia. Si no aparece, usa null.
 categoria: CASA/APARTAMENTO/TERRENO/VEHICULO/MISCELANEO
+descripcion: RESUMEN CORTO de portada (máx ~15 palabras): tipo de bien + nombre del edificio/PH/urbanización + corregimiento/distrito (ej: "Apartamento en P.H. Bella Luna, Corregimiento Pueblo Nuevo, Distrito Panamá"). SIN linderos, SIN medidas, SIN colindantes -- todo eso va SOLO en descripcion_completa.
+descripcion_completa: la descripción COMPLETA del bien tal como aparece impresa en el aviso (detalle largo: superficie, linderos, medidas, mejoras, etc.).
 === MONTOS (búscalos con cuidado; el OCR puede traerlos borrosos) ===
 Casi todo remate indica valor base, fianza y postura mínima; búscalos e inclúyelos. PERO si el OCR los trae ilegibles o incompletos, deja ese campo en null e IGUAL incluye el aviso. Lo que define un remate es su ENCABEZADO ("AVISO DE REMATE"/"REMATE"/"SUBASTA"), NO que los números se lean bien. NUNCA descartes un remate por no poder leer sus montos.
 base: el avalúo o base del remate. Búscalo tras "BASE DEL REMATE", "AVALÚO", "avaluado(a) en", "valor base", "por la suma de", "B/." o "$". Número plano sin $ ni comas ni B/. (ej: 150000.00).

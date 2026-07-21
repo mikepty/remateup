@@ -162,9 +162,38 @@ def _generar_codigo_prensa(datos: dict) -> str | None:
     return None  # Si no tenemos fecha de periódico ni página, dejar null para completar manual
 
 
+# La descripción de PORTADA debe ser un resumen corto; el detalle largo va en
+# descripcion_completa. Si la IA devuelve una portada larga, se corrige aquí
+# de forma determinista (sin volver a llamar a la IA).
+LARGO_MAX_DESCRIPCION_PORTADA = 220
+
+
+def _resumir_descripcion_portada(datos: dict) -> None:
+    desc = str(datos.get("descripcion") or "").strip()
+    if len(desc) <= LARGO_MAX_DESCRIPCION_PORTADA:
+        return
+    # Preservar el texto largo como descripción completa si no vino aparte
+    if not str(datos.get("descripcion_completa") or "").strip():
+        datos["descripcion_completa"] = desc
+    # Cortar en un límite natural (antes de linderos/medidas si aparecen)
+    desc_u = desc.upper()
+    corte = len(desc)
+    for marca in ("LINDEROS", "PARTIENDO DE", "CON UNA SUPERFICIE", "MIDE UNA DISTANCIA"):
+        i = desc_u.find(marca)
+        if i != -1:
+            corte = min(corte, i)
+    resumen = desc[:min(corte, LARGO_MAX_DESCRIPCION_PORTADA)].rstrip(" ,.;:-")
+    # No cortar a media palabra
+    if len(resumen) == LARGO_MAX_DESCRIPCION_PORTADA and " " in resumen:
+        resumen = resumen[:resumen.rfind(" ")].rstrip(" ,.;:-")
+    datos["descripcion"] = resumen
+
+
 def aplicar_reglas(datos: dict) -> dict:
     """Recibe el dict de datos extraídos y le agrega/corrige campos codificados."""
     datos = dict(datos)  # copia, no mutar el original
+
+    _resumir_descripcion_portada(datos)
 
     pais = datos.get("pais")
     provincia_raw = _normalizar(datos.get("provincia") or "")
