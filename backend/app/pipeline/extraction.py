@@ -74,6 +74,8 @@ def _cargar_aprendizaje(pais: str) -> str:
     return bloque
 
 def _construir_prompt(pais: str, multiples_imagenes: bool = False, num_tiles: int = 0) -> str:
+    """Prompt para extracción directa de IMÁGENES (solo cuando Vision OCR no está disponible).
+    Cuando Vision OCR SÍ está configurado, se usa _construir_prompt_texto en su lugar."""
     campos_str = ", ".join(CAMPOS)
     aprendizaje = _cargar_aprendizaje(pais)
 
@@ -124,49 +126,41 @@ Se adjuntan {num_tiles} FRAGMENTOS de UNA página de periódico, ordenados de AR
 
 
 def _construir_prompt_texto(pais: str) -> str:
-    """Prompt para estructurar TEXTO ya extraído por OCR (no imágenes)."""
+    """Prompt para estructurar TEXTO ya extraído por OCR (no imágenes).
+    Más corto y enfocado que el de imágenes -- ahorra tokens."""
     campos_str = ", ".join(CAMPOS)
     aprendizaje = _cargar_aprendizaje(pais)
-    return f"""Abajo tienes el TEXTO extraído por OCR de una o varias páginas CONSECUTIVAS de periódico de remates judiciales de {"Panamá" if pais == "PA" else "Colombia"}. Las páginas vienen EN ORDEN y el texto de una página continúa en la siguiente (puede haber varias imágenes: mitad superior y mitad inferior de cada página, y luego la página siguiente). Léelo como un solo flujo continuo.
+    return f"""Abajo tienes TEXTO OCR de periódico de remates judiciales de {"Panamá" if pais == "PA" else "Colombia"}. Extrae los avisos de REMATE JUDICIAL en JSON.
 
-Tu tarea: identificar los avisos de REMATE JUDICIAL en el texto y estructurarlos en JSON, captando el 100% de los datos de cada aviso.
+AVISO DE REMATE: encabezado dice "AVISO DE REMATE", "REMATE", "SUBASTA" (OCR puede dañar: "BENATE", "HEMATE" = REMATE). Trae base, fianza, postura mínima. IGNORA edictos (emplazatorios, citación, sucesión).
 
-Un AVISO DE REMATE se reconoce por su ENCABEZADO: dice "AVISO DE REMATE", "REMATE" o "SUBASTA" (aunque el OCR lo traiga dañado, ej. "AVISO DE BENATE" o "AVISO DE HEMATE" = AVISO DE REMATE). Normalmente trae base/avalúo, fianza, postura mínima, fecha, bien y juzgado. IGNORA los EDICTOS (emplazatorios, de citación, de sucesión) y notificaciones: esos empiezan con "EDICTO" o "EDICTO EMPLAZATORIO" y NO son remates.
-IMPORTANTE: en una misma página (sobre todo en clasificados) puede haber MUCHOS edictos y solo unos pocos remates mezclados. Extrae TODOS los remates que encuentres aunque estén rodeados de edictos; NO descartes un remate solo porque hay muchos edictos alrededor o porque el texto está desordenado.
+REGLAS CLAVE:
+- Cada aviso es UNIDAD INDEPENDIENTE. NO mezcles datos de avisos distintos ni de edictos.
+- demandante/demandado son del MISMO remate. NO tomes partes de avisos/edictos diferentes.
+- NO uses colindantes/vecinos como partes.
+- Varios bienes + 1 base = 1 aviso. Bases diferentes = avisos separados.
+- CONTINUACIÓN solo si EVIDENTE (mismo exp/finca/partes cortado entre páginas). Si cada aviso está completo, NO fusiones.
+- Transcribe TODO que aparezca. null solo si de verdad no está o es ilegible. NUNCA copies de OTRO aviso.
+- Nombres propios EXACTOS (edificios, PH, personas, juzgados). NO los "mejores".
+- finca_matr ≠ codigo_ubicacion_prensa (son campos distintos).
+- Si NO hay remates: []
 
-=== REGLAS DE SEPARACIÓN Y AGRUPACIÓN (MUY IMPORTANTE) ===
-- Cada aviso de remate es una UNIDAD INDEPENDIENTE. NO mezcles datos de avisos distintos ni de edictos vecinos. Todos los datos de un aviso (demandante, demandado, finca, base, etc.) deben salir del MISMO bloque de texto del MISMO remate.
-- El demandante y el demandado pertenecen AL MISMO remate y suelen aparecer juntos (ej. "BANCO X Vs. PERSONA Y" o "demandante... contra... demandado..."). NUNCA tomes el demandante de un remate y el demandado de otro aviso/edicto distinto.
-- NO uses nombres de COLINDANTES o vecinos (los que "lindan" o "colindan" con la propiedad, mencionados en los linderos) como demandante ni demandado. Los colindantes NO son las partes del remate.
-- Varias propiedades con UN SOLO valor base/avalúo compartido = UN SOLO remate: agrúpalas TODAS en un mismo aviso y descríbelas juntas en la descripción.
-- Varias propiedades con DIFERENTES valores base = avisos SEPARADOS (uno por cada base), aunque compartan demandante y demandado.
-- CONTINUACIÓN ENTRE PÁGINAS (SOLO si de verdad ocurre): un mismo aviso puede EMPEZAR al final de una página/imagen y SEGUIR al inicio de la siguiente. Únelos en UN SOLO aviso SOLO cuando sea EVIDENTE que son el MISMO remate cortado (mismo expediente, misma finca y mismo demandante/demandado). Si cada aviso ya está completo por sí mismo, trátalos como INDEPENDIENTES: NO busques ni inventes una continuación que no existe, y NO fusiones dos remates distintos. Unir una continuación significa reunir las partes del MISMO aviso, NUNCA copiar campos de un aviso a otro. Si no hay ninguna continuación real, no pasa nada: cada aviso queda por separado.
+Montos (MUY IMPORTANTE -- casi todo remate los trae):
+- base: tras "BASE DEL REMATE", "AVALÚO", "avaluado en", "B/.", "$". Número plano sin $ ni comas (ej: 150000.00).
+- fianza_porcentaje: {"10/20/25" if pais == "PA" else "40"}%. Tras "FIANZA", "consignar", "depósito previo".
+- minimo_porcentaje: 66.67(2/3)/50/100%. Tras "POSTURA MÍNIMA", "dos terceras partes", "la mitad".
+- SI el monto es ilegible, deja null e IGUAL incluye el aviso.
+- IMPORTANTE: Los montos suelen aparecer como "B/. 150,000.00" o "$150,000.00" o "150000.00". Extrae SOLO el número (sin B/., sin $, sin comas).
 
-REGLAS:
-- Usa SOLO el texto proporcionado abajo, pero EXTRAE de ahí TODO lo que sí aparezca. Si un dato SÍ está en el texto del aviso (expediente, demandante, demandado, base, juzgado, finca, fecha, etc.), extráelo SIEMPRE; NO lo dejes en null por pereza. Usa null ÚNICAMENTE cuando el dato de verdad no aparece o es ilegible. NUNCA rellenes un campo con datos de OTRO aviso, de otra página, de otro documento, de subidas anteriores ni de tu conocimiento general (mejor null que un dato inventado o prestado de otro aviso).
-- El texto puede venir MUY dañado por el OCR (letras y números mezclados, palabras partidas, tildes raras), sobre todo en páginas de clasificados densas. Aun así, identifica cada bloque de remate por su encabezado y extrae lo que sea legible; deja en null solo lo que de verdad no puedas leer. Agrupa con cuidado los datos de cada aviso sin mezclar con avisos contiguos, y NO inventes para rellenar lo ilegible.
-- Extrae TODOS los remates que encuentres y llena TODOS los campos que estén presentes en el texto (no dejes vacío lo que sí aparece).
-- TRANSCRIBE los nombres propios (edificios, PH, urbanizaciones, personas, juzgados) EXACTAMENTE letra por letra como aparecen en el texto. NUNCA los cambies por nombres más comunes o parecidos (ej. si dice "PH COLUMBUS" escribe "COLUMBUS", NO "Colosal"). Copia el nombre tal cual.
-- finca_matr es el NÚMERO DE FINCA/FOLIO (ej. "13-209", "155700"). codigo_ubicacion_prensa es el CÓDIGO DE UBICACIÓN, un dato DISTINTO. NO pongas el código de ubicación en la finca ni viceversa; son campos separados.
-- NUNCA inventes. Si no hay remates, devuelve [].
-
-Devuelve un array JSON. Cada aviso:
-{{"datos": {{{campos_str}}}, "confianza": {{mismas claves, valor 0-1}}}}
-
-pais: {"1" if pais == "PA" else "2"}, fecha: YYYY-MM-DD (año 2026), hora: HH:MM
-expediente: el número de expediente TAL CUAL aparece impreso en el aviso, completo (con año y guiones si los tiene, ej: "3286/2025", "07-353-2024"). NO lo abrevies ni modifiques.
-finca_matr: número de finca (Panamá) o matrícula inmobiliaria (Colombia).
-codigo_ubicacion_prensa: el CÓDIGO DE UBICACIÓN que aparece impreso en el aviso, normalmente JUNTO/DESPUÉS del número de finca o folio (ej. en "Finca 155700, Código de Ubicación 8900" -> "8900"). Es un dato REAL del periódico, NO es el código de provincia. Si no aparece, usa null.
+pais: {"1" if pais == "PA" else "2"}, fecha: YYYY-MM-DD, hora: HH:MM
+expediente: TAL CUAL impreso (con guiones/año). NO abrevies.
+finca_matr: num finca (PA) / matrícula (CO). codigo_ubicacion_prensa: código distinto impreso en aviso.
 categoria: CASA/APARTAMENTO/TERRENO/VEHICULO/MISCELANEO
-descripcion: RESUMEN CORTO de portada (máx ~15 palabras): tipo de bien + nombre del edificio/PH/urbanización + corregimiento/distrito (ej: "Apartamento en P.H. Bella Luna, Corregimiento Pueblo Nuevo, Distrito Panamá"). SIN linderos, SIN medidas, SIN colindantes -- todo eso va SOLO en descripcion_completa.
-descripcion_completa: la descripción COMPLETA del bien tal como aparece impresa en el aviso (detalle largo: superficie, linderos, medidas, mejoras, etc.).
-=== MONTOS (búscalos con cuidado; el OCR puede traerlos borrosos) ===
-Casi todo remate indica valor base, fianza y postura mínima; búscalos e inclúyelos. PERO si el OCR los trae ilegibles o incompletos, deja ese campo en null e IGUAL incluye el aviso. Lo que define un remate es su ENCABEZADO ("AVISO DE REMATE"/"REMATE"/"SUBASTA"), NO que los números se lean bien. NUNCA descartes un remate por no poder leer sus montos.
-base: el avalúo o base del remate. Búscalo tras "BASE DEL REMATE", "AVALÚO", "avaluado(a) en", "valor base", "por la suma de", "B/." o "$". Número plano sin $ ni comas ni B/. (ej: 150000.00).
-fianza_porcentaje: {"10/20/25" if pais == "PA" else "40"} -- % del depósito/consignación para participar. Búscalo tras "FIANZA", "consignar", "consignación", "depósito previo", "para participar" ({"Panamá: 10, 20 o 25" if pais == "PA" else "Colombia: siempre 40"}).
-minimo_porcentaje: 66.67(2/3)/50(mitad)/100(total) -- postura mínima admisible. Búscala tras "POSTURA MÍNIMA", "posturas admisibles", "no se admiten posturas inferiores", "dos terceras partes"(=66.67), "la mitad"(=50), "avalúo total"(=100).
+descripcion: resumen portada máx 15 palabras (tipo + nombre + ubicación). SIN linderos/medidas.
+descripcion_completa: detalle COMPLETO del bien (superficie, linderos, medidas, etc.).
 codigo_prensa: {"LP/ML/LE" if pais == "PA" else "SEJ"}-YYYY-MM-DD-PXX o null
-prevista: "[Área], [Nombre PH], Corr: [X], Dist: [Y]" para Google Maps{aprendizaje}"""
+
+Array JSON: [{{"datos": {{{campos_str}}}, "confianza": {{mismas claves, 0-1}}}}]{aprendizaje}"""
 
 
 def _llamar_claude(prompt_completo: str, intento: int = 0) -> str:
@@ -737,6 +731,13 @@ def extraer(archivo_paths, pais: str = "PA", salida_ocr: dict = None) -> list[di
             print(f"[extraction] {len(archivo_paths)} imagen(es): Vision OCR -> Claude")
             texto = ocr_vision.ocr_multiples_imagenes(archivo_paths)
             salida_ocr["texto"] = texto
+            
+            # Log para debug: buscar indicios de montos en el texto OCR
+            texto_upper = texto.upper()
+            indicios_montos = ["B/.", "$", "BASE", "AVALUO", "AVALÚO", "FIANZA", "POSTURA"]
+            encontrados = [i for i in indicios_montos if i in texto_upper]
+            print(f"[extraction] Texto OCR: {len(texto)} chars, indicios de montos: {encontrados}")
+            
             resultado = _estructurar_texto_largo(texto, pais)
             # Reintento: si devolvió 0 pero el texto claramente tiene remates
             if not resultado and _tiene_indicios_remate(texto):

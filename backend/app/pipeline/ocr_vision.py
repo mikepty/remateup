@@ -62,7 +62,8 @@ def _reconstruir_por_columnas(anotacion: dict) -> str:
         return ""
 
     # Detectar columnas agrupando los bordes izquierdos (x) con una tolerancia.
-    tol = max(ancho * 0.12, 30)
+    # Aumentada a 15% del ancho para periódicos con columnas anchas
+    tol = max(ancho * 0.15, 50)
     xs_orden = sorted(b["x"] for b in bloques)
     centros = []  # x representativo de cada columna, de izquierda a derecha
     for x in xs_orden:
@@ -137,7 +138,9 @@ def ocr_multiples_imagenes(rutas: list[str]) -> str:
     for i, ruta in enumerate(rutas):
         texto = ocr_imagen(ruta)
         partes.append(texto)
-        print(f"[ocr_vision] Imagen {i+1}: {len(texto)} caracteres extraídos")
+        # Log primeras lineas para debug
+        lineas = texto.split('\n')[:5]
+        print(f"[ocr_vision] Imagen {i+1}: {len(texto)} caracteres, primeras lineas: {' | '.join(lineas[:3])}")
     return "\n\n".join(partes)
 
 
