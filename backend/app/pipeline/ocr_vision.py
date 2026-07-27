@@ -84,6 +84,126 @@ def _reconstruir_por_columnas(anotacion: dict) -> str:
     return "\n".join(b["texto"] for b in bloques)
 
 
+def _extraer_palabras(anotacion: dict) -> tuple[list[dict], int]:
+    """Lista plana de PALABRAS con su caja (x0,y0,x1,y1), texto y tipo de break.
+    Trabajar a nivel de palabra permite reordenar bien incluso cuando Vision
+    fusionó varias columnas dentro de un mismo bloque/línea."""
+    palabras = []
+    ancho = 0
+    for page in anotacion.get("pages", []):
+        ancho = max(ancho, page.get("width", 0) or 0)
+        for block in page.get("blocks", []):
+            for para in block.get("paragraphs", []):
+                for word in para.get("words", []):
+                    syms = word.get("symbols", [])
+                    texto = "".join(s.get("text", "") for s in syms)
+                    if not texto.strip():
+                        continue
+                    verts = (word.get("boundingBox", {}) or {}).get("vertices", []) or []
+                    xs = [v.get("x", 0) for v in verts]
+                    ys = [v.get("y", 0) for v in verts]
+                    if not xs or not ys:
+                        continue
+                    brk = ""
+                    if syms:
+                        brk = ((syms[-1].get("property", {}) or {}).get("detectedBreak", {}) or {}).get("type", "")
+                    palabras.append({"x0": min(xs), "x1": max(xs), "y0": min(ys),
+                                     "y1": max(ys), "t": texto, "brk": brk})
+                    ancho = max(ancho, max(xs))
+    return palabras, ancho
+
+
+def _detectar_columnas(palabras: list[dict], ancho: int) -> list[tuple[int, int]]:
+    """Detecta los límites [x_ini, x_fin) de cada columna con un perfil de
+    proyección horizontal: los canalones del periódico son franjas verticales
+    casi sin palabras. Ignora palabras muy grandes (titulares que cruzan
+    columnas) para que no tapen los canalones."""
+    if not palabras or ancho <= 0:
+        return []
+    alturas = sorted(p["y1"] - p["y0"] for p in palabras)
+    h_med = alturas[len(alturas) // 2] or 1
+    cuerpo = [p for p in palabras if (p["y1"] - p["y0"]) <= 2.5 * h_med] or palabras
+
+    BIN = 8
+    nbins = ancho // BIN + 2
+    cobertura = [0] * nbins
+    for p in cuerpo:
+        for b in range(p["x0"] // BIN, min(p["x1"] // BIN, nbins - 1) + 1):
+            cobertura[b] += 1
+    pico = max(cobertura)
+    if pico == 0:
+        return []
+    umbral = max(2, pico * 0.03)
+
+    columnas = []
+    en_col, ini = False, 0
+    for i, c in enumerate(cobertura):
+        if c >= umbral and not en_col:
+            en_col, ini = True, i
+        elif c < umbral and en_col:
+            en_col = False
+            columnas.append((ini * BIN, i * BIN))
+    if en_col:
+        columnas.append((ini * BIN, nbins * BIN))
+    # Descartar franjas demasiado angostas (ruido/filetes)
+    columnas = [c for c in columnas if c[1] - c[0] > ancho * 0.04]
+    return columnas
+
+
+def _reconstruir_por_palabras(anotacion: dict) -> str:
+    """Reordena el texto PALABRA por PALABRA: asigna cada palabra a su columna
+    (detectada por perfil de proyección), agrupa en líneas dentro de la columna
+    y lee columna por columna, de arriba a abajo. Arregla las páginas donde
+    Vision entrelazó columnas dentro de un mismo bloque (lo que el reordenado
+    por bloques no puede corregir). Devuelve "" si no detecta 2+ columnas."""
+    palabras, ancho = _extraer_palabras(anotacion)
+    columnas = _detectar_columnas(palabras, ancho)
+    if len(columnas) < 2:
+        return ""
+
+    def col_de(p):
+        cx = (p["x0"] + p["x1"]) / 2
+        for i, (a, b) in enumerate(columnas):
+            if a <= cx < b:
+                return i
+        # Fuera de toda columna: la más cercana por centro
+        return min(range(len(columnas)),
+                   key=lambda i: abs(cx - (columnas[i][0] + columnas[i][1]) / 2))
+
+    alturas = sorted(p["y1"] - p["y0"] for p in palabras)
+    h_med = alturas[len(alturas) // 2] or 10
+
+    grupos = [[] for _ in columnas]
+    for p in palabras:
+        grupos[col_de(p)].append(p)
+
+    partes = []
+    for grupo in grupos:
+        if not grupo:
+            continue
+        grupo.sort(key=lambda p: (p["y0"], p["x0"]))
+        # Agrupar en líneas: misma línea si el tope está cerca del de la línea actual
+        lineas, actual, y_linea = [], [], None
+        for p in grupo:
+            if actual and p["y0"] - y_linea > 0.6 * h_med:
+                lineas.append(actual)
+                actual = []
+            if not actual:
+                y_linea = p["y0"]
+            actual.append(p)
+        if actual:
+            lineas.append(actual)
+        for linea in lineas:
+            linea.sort(key=lambda p: p["x0"])
+            for p in linea:
+                partes.append(p["t"])
+                partes.append("" if p["brk"] == "HYPHEN" else " ")
+            if partes and partes[-1] == " ":
+                partes[-1] = "\n"
+        partes.append("\n")
+    return "".join(partes).strip()
+
+
 def _ocr_imagen_bytes(data: bytes) -> str:
     """Envía una imagen (bytes) a Vision y devuelve el texto detectado."""
     if not GOOGLE_VISION_API_KEY:
@@ -112,14 +232,22 @@ def _ocr_imagen_bytes(data: bytes) -> str:
         raise RuntimeError(f"Vision API error: {r0['error'].get('message', 'desconocido')}")
     anotacion = r0.get("fullTextAnnotation", {})
     plano = anotacion.get("text", "") or ""
-    # Reconstruir por columnas para no mezclar columnas del periódico.
+    # Intentar reconstrucción por palabras primero (más precisa: corrige
+    # entrelazado de columnas dentro de un mismo bloque de Vision).
+    try:
+        por_palabras = _reconstruir_por_palabras(anotacion)
+    except Exception as e:
+        print(f"[ocr_vision] Reconstruccion por palabras fallo: {e}")
+        por_palabras = ""
+    if por_palabras:
+        return por_palabras
+    # Fallback: reconstrucción por bloques (funciona bien en páginas donde
+    # Vision no entrelazó columnas dentro de un bloque).
     try:
         por_columnas = _reconstruir_por_columnas(anotacion)
     except Exception as e:
         print(f"[ocr_vision] Reconstruccion por columnas fallo, uso texto plano: {e}")
         por_columnas = ""
-    # Solo usar la versión por columnas si conservó una cantidad de texto
-    # razonable (evita perder contenido si algo salió mal).
     if por_columnas and len(por_columnas) >= 0.85 * len(plano):
         return por_columnas
     return plano
