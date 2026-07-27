@@ -263,7 +263,7 @@ def _llamar_ia(prompt_completo: str) -> tuple[str, str]:
     si el primero falla (sin saldo, sin cuota, caído). Devuelve (texto, motor)."""
     from ..config import ANTHROPIC_API_KEY as CK, GEMINI_API_KEY as GK, MOTOR_IA
 
-    orden = ["claude", "gemini"] if MOTOR_IA == "claude" else ["gemini", "claude"]
+    orden = ["gemini", "claude"] if MOTOR_IA == "gemini" else ["claude", "gemini"]
     disponibles = [m for m in orden if (GK if m == "gemini" else CK)]
     if not disponibles:
         raise RuntimeError("Ni GEMINI_API_KEY ni ANTHROPIC_API_KEY configuradas")
