@@ -140,9 +140,11 @@ def _calcular_y_validar_valores(datos: dict) -> dict:
 
 def _generar_codigo_prensa(datos: dict) -> str | None:
     """Genera el código de prensa si tenemos suficiente información.
-    Formato: SIGLA-YYYY-MM-DD-PXX
-    Siglas: LP (La Prensa), ML (Metro Libre), LE (La Estrella), SEJ (Colombia).
-    Si no podemos determinar la sigla, usamos la del país por defecto."""
+    Formato preferido: SIGLA-YYYY-MM-DD-PXX (cuando el OCR lo trae tal cual).
+    Si no, se construye SIGLA-codigo_fuente usando la sigla detectada del
+    nombre de archivo (_sigla_periodico, ver orchestrator) y el número de
+    referencia real de la nota (ej. "2026/102337", impreso junto a cada aviso).
+    Siglas: LP (La Prensa), ML (Metro Libre), LE (La Estrella), SEJ (Colombia)."""
     pais = datos.get("pais")
     codigo_fuente = datos.get("codigo_fuente")
 
@@ -150,16 +152,18 @@ def _generar_codigo_prensa(datos: dict) -> str | None:
     if codigo_fuente and any(s in str(codigo_fuente).upper() for s in ["LP", "ML", "LE", "SEJ"]):
         return codigo_fuente
 
-    # Para Colombia, la sigla es siempre SEJ
-    if pais == 2:
-        sigla = "SEJ"
-    elif pais == 1:
-        # Para Panamá, sin más datos asumimos LP (La Prensa) como default
-        sigla = "LP"
-    else:
-        return None
+    sigla = datos.get("_sigla_periodico")
+    if not sigla:
+        if pais == 2:
+            sigla = "SEJ"
+        elif pais == 1:
+            sigla = "LP"  # sin más datos, asumir LP (La Prensa) como default
+        else:
+            return None
 
-    return None  # Si no tenemos fecha de periódico ni página, dejar null para completar manual
+    if codigo_fuente:
+        return f"{sigla}-{codigo_fuente}"
+    return None  # Sin sigla+fecha de periódico ni número de nota, dejar null para completar manual
 
 
 # La descripción de PORTADA debe ser un resumen corto; el detalle largo va en

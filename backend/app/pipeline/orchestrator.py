@@ -2,11 +2,21 @@
 Orchestrator: coordina el flujo completo, paso a paso, de forma lineal y explícita.
 """
 import json
+import re
 from sqlalchemy.orm import Session
 from ..models import Documento, Aviso
 from . import extraction, business_rules, validation, confidence, audit
 from ..whatsapp.notifier import enviar_solicitud_aprobacion
 from ..upload.platform_uploader import subir_a_plataforma
+
+
+def _sigla_periodico_de_archivo(nombre_archivo: str) -> str | None:
+    """Detecta la sigla del periódico (LP/ML/LE) a partir del nombre de archivo
+    que el cliente sube (ej. "LE 1c 8 julio 26 header.jpg" -> "LE")."""
+    if not nombre_archivo:
+        return None
+    m = re.match(r"\s*(LP|ML|LE)\b", nombre_archivo.upper())
+    return m.group(1) if m else None
 
 
 def procesar_documento(db: Session, documento: Documento) -> list[Aviso]:
@@ -38,9 +48,11 @@ def procesar_documento(db: Session, documento: Documento) -> list[Aviso]:
         raise
 
     avisos_creados = []
+    sigla_periodico = _sigla_periodico_de_archivo(documento.nombre_archivo)
 
     for idx, item in enumerate(resultados):
         try:
+            item["datos"]["_sigla_periodico"] = sigla_periodico
             datos = business_rules.aplicar_reglas(item["datos"])
             confianza_campos = item["confianza"]
             audit.registrar(db, "business_rules", "reglas_aplicadas",
