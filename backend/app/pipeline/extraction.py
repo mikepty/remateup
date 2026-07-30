@@ -14,12 +14,46 @@ CAMPOS = [
     "demandante", "demandado", "lote_casa", "descripcion", "descripcion_completa",
     "prevista", "superficie", "finca_matr", "codigo_ubicacion_prensa", "provincia", "plano", "base",
     "fianza_porcentaje", "minimo_porcentaje", "fianza", "minimo", "codigo_fuente",
-    "codigo_prensa", "email_observaciones",
+    "codigo_prensa", "email_observaciones", "periodico", "fecha_prensa", "pagina_prensa",
 ]
 
 CATEGORIAS_VALIDAS = ["CASA", "APARTAMENTO", "TERRENO", "VEHICULO", "MISCELANEO"]
 
 SYSTEM_PROMPT = "Responde SOLO con un array JSON válido. Sin texto, sin explicaciones, sin markdown."
+
+# Explicación EXPLÍCITA de los campos que suelen confundirse entre sí o quedar
+# mal llenados. Antes estos campos solo aparecían como nombres sueltos en la
+# lista de CAMPOS, sin ninguna guía -- el modelo tenía que adivinar qué iba en
+# cada uno. Esto es la causa directa de que finca_matr/codigo_ubicacion_prensa
+# se confundan y de que email_observaciones termine con texto que no es un correo.
+GUIA_CAMPOS_AMBIGUOS = """
+=== CAMPOS QUE NO DEBES CONFUNDIR ===
+- finca_matr: el número de FINCA o FOLIO REAL del inmueble (aparece junto a la palabra "Finca" o "Folio Real"). Ej: "Finca: 30269571" -> finca_matr = "30269571".
+- codigo_ubicacion_prensa: el "Código de ubicación" que imprime el periódico, es OTRO número (normalmente 4 dígitos), NO es la finca. Ej: "Código de ubicación: 4506" -> codigo_ubicacion_prensa = "4506". Si el aviso no trae explícitamente un "código de ubicación" impreso, deja este campo en null (NO copies ahí el número de finca).
+- email_observaciones: SOLO un correo electrónico (formato usuario@dominio), y SOLO si aparece impreso en el aviso. Si no hay ningún correo electrónico en el texto del aviso, este campo debe ser null. NUNCA pongas aquí descripciones, montos, nombres, ni texto de otro aviso/edicto/documento.
+- descripcion vs descripcion_completa: ver instrucciones más abajo.
+- periodico / fecha_prensa / pagina_prensa: son datos DEL PERIÓDICO (la publicación), no del remate. Se leen del encabezado o pie de página de la hoja (ej. "La Prensa, Panamá, jueves 9 de julio de 2026 ... 7B"), NO del cuerpo del aviso:
+  - periodico: nombre tal cual aparece impreso (ej. "La Prensa", "La Estrella", "Metro Libre"). Si no es visible en esta imagen/texto, null.
+  - fecha_prensa: fecha de la EDICIÓN del periódico (formato YYYY-MM-DD). Es DISTINTA de "fecha" (que es la fecha del remate). Si no es visible, null.
+  - pagina_prensa: código de página impreso en la esquina/pie de la hoja, tal cual (ej. "7B", "1C", "23"). Si no es visible, null.
+  Todos los avisos que vengan de LA MISMA hoja/imagen comparten el mismo periodico/fecha_prensa/pagina_prensa.
+"""
+
+# Marcador que se inserta en el texto OCR antes de CUALQUIER encabezado de
+# documento (remate, disolución, edicto, negocio, etc.) para que el modelo
+# tenga una señal visual clara de dónde termina un documento y empieza el
+# siguiente, incluso cuando varios tipos de aviso quedan pegados en el mismo
+# trozo de texto enviado a la IA.
+MARCADOR_LIMITE = ">>> LIMITE_DOCUMENTO <<<"
+
+REGLA_LIMITE_DOCUMENTO = f"""
+=== LÍMITES ENTRE DOCUMENTOS (MUY IMPORTANTE) ===
+El texto contiene VARIOS documentos legales distintos pegados uno tras otro (avisos de remate, avisos de disolución, edictos, convocatorias, negocios, etc.), separados por la marca "{MARCADOR_LIMITE}".
+- Cada documento (entre dos marcas "{MARCADOR_LIMITE}") es INDEPENDIENTE.
+- Un AVISO DE REMATE termina EXACTAMENTE donde aparece la siguiente marca "{MARCADOR_LIMITE}".
+- NUNCA tomes ningún dato (email, fecha, monto, nombre, descripción) de DESPUÉS de esa marca para completar un aviso de remate anterior, aunque el texto siga sin espacio en blanco.
+- Si entre dos marcas el documento NO es un "AVISO DE REMATE" (es disolución, edicto, convocatoria, etc.), ese bloque completo se IGNORA por completo, no se mezcla con el aviso vecino.
+"""
 
 
 def _cargar_aprendizaje(pais: str) -> str:
@@ -128,18 +162,21 @@ Busca textos que contengan:
 - "REPUBLICA DE PANAMA ORGANO JUDICIAL" (notificaciones)
 - Textos que solo mencionan procesos judiciales sin subasta
 
+{REGLA_LIMITE_DOCUMENTO}
+{GUIA_CAMPOS_AMBIGUOS}
+
 Devuelve un array JSON. Cada aviso:
 {{"datos": {{{campos_str}}}, "confianza": {{mismas claves, valor 0-1}}}}
 
 pais: {"1" if pais == "PA" else "2"}, fecha: YYYY-MM-DD, hora: HH:MM
 expediente: número de expediente TAL CUAL aparece. NO lo abrevies.
 categoria: CASA/APARTAMENTO/TERRENO/VEHICULO/MISCELANEO
-descripcion: resumen corto (máx 15 palabras): tipo + nombre + ubicación
-descripcion_completa: detalle COMPLETO del bien
+descripcion: resumen corto, MÁXIMO 15 PALABRAS (cuéntalas): tipo de bien + nombre/ubicación. NUNCA copies aquí el detalle completo de linderos/medidas.
+descripcion_completa: detalle COMPLETO del bien (aquí sí va todo el texto largo: linderos, medidas, gravámenes, etc.)
 base: número plano sin $ ni comas (ej: 150000.00)
 fianza_porcentaje: {"10/20/25" if pais == "PA" else "40"}
 minimo_porcentaje: 66.67/50/100
-codigo_prensa: LP-YYYY-MM-DD-PXX o null{aprendizaje}"""
+codigo_prensa: déjalo SIEMPRE null (se genera automáticamente a partir de periodico+fecha_prensa+pagina_prensa, no lo calcules tú){aprendizaje}"""
 
     if multiples_imagenes and num_tiles > 1:
         prompt += f"""
@@ -192,9 +229,11 @@ Montos:
 pais: {"1" if pais == "PA" else "2"}, fecha: YYYY-MM-DD, hora: HH:MM
 expediente: TAL CUAL impreso. NO abrevies.
 categoria: CASA/APARTAMENTO/TERRENO/VEHICULO/MISCELANEO
-descripcion: resumen corto máx 15 palabras
+descripcion: resumen corto, MÁXIMO 15 PALABRAS (cuéntalas): tipo de bien + nombre/ubicación. NUNCA copies aquí linderos/medidas completas.
 descripcion_completa: detalle COMPLETO del bien
-codigo_prensa: LP-YYYY-MM-DD-PXX o null
+codigo_prensa: déjalo SIEMPRE null (se genera automáticamente a partir de periodico+fecha_prensa+pagina_prensa, no lo calcules tú)
+{REGLA_LIMITE_DOCUMENTO}
+{GUIA_CAMPOS_AMBIGUOS}
 
 Array JSON: [{{"datos": {{{campos_str}}}, "confianza": {{mismas claves, 0-1}}}}]{aprendizaje}"""
 
@@ -599,6 +638,48 @@ _RE_ENCABEZADO_REMATE = re.compile(r"AVISO\s+DE\s+[A-Z]{0,2}E[MN]ATE")
 # suele venir el número de negocio/expediente, ej. "NEGOCIO N.63539-23 AVISO DE REMATE")
 _CONTEXTO_PREVIO = 150
 
+# Encabezados de CUALQUIER tipo de documento legal que suele aparecer pegado
+# a los avisos de remate en una misma página de periódico (disoluciones,
+# edictos, negocios societarios, convocatorias...). Una página densa de
+# clasificados mezcla varios tipos; si no se marca la frontera, el modelo
+# puede arrastrar un dato (un correo, una fecha, un monto) de uno de estos
+# documentos hacia el aviso de remate vecino. Solo MAYÚSCULAS, mismo criterio
+# que _RE_ENCABEZADO_REMATE.
+_RE_LIMITES_DOCUMENTO = re.compile(
+    r"AVISO\s+DE\s+[A-Z]{0,2}E[MN]ATE"
+    r"|AVISO\s+DE\s+DISOLUCI[OÓ]N"
+    r"|EDICTO\s+EMPLAZATORIO"
+    r"|EDICTO\s+(?:No|N[°º])\.?\s*\d"
+    r"|NEGOCIO\s+(?:No|N[°º])\.?\s*\d"
+    r"|EXTRACTO\s+DE\s+LA\s+DISOLUCI[OÓ]N"
+)
+
+
+def _marcar_limites_documentos(texto: str) -> str:
+    """Inserta MARCADOR_LIMITE antes de CADA encabezado de documento (remate,
+    disolución, edicto, negocio...), no solo de remates. Le da al modelo una
+    frontera visual explícita entre documentos distintos que quedaron pegados
+    en el mismo trozo de texto, para que no mezcle datos de uno con otro."""
+    if not texto:
+        return texto
+    posiciones = []
+    for m in _RE_LIMITES_DOCUMENTO.finditer(texto):
+        previo = texto[max(0, m.start() - 30):m.start()].upper()
+        if "PRESENTE" in previo or "FIJA" in previo:
+            continue
+        posiciones.append(m.start())
+    if not posiciones:
+        return texto
+    partes = []
+    anterior = 0
+    for p in posiciones:
+        if p > anterior:
+            partes.append(texto[anterior:p])
+        partes.append(f"\n{MARCADOR_LIMITE}\n")
+        anterior = p
+    partes.append(texto[anterior:])
+    return "".join(partes)
+
 
 def _posiciones_avisos(texto: str) -> list[int]:
     """Posiciones donde EMPIEZA un aviso de remate (encabezado en mayúsculas,
@@ -660,6 +741,7 @@ def _estructurar_texto_largo(texto_ocr: str, pais: str = "PA") -> list[dict]:
     solape. La deduplicación posterior (en extraer) limpia cualquier repetido."""
     if not texto_ocr:
         return []
+    texto_ocr = _marcar_limites_documentos(texto_ocr)
     if len(texto_ocr) <= LIMITE_CHARS_POR_LLAMADA:
         return _estructurar_texto_ocr(texto_ocr, pais)
 

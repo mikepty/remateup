@@ -138,43 +138,93 @@ def _calcular_y_validar_valores(datos: dict) -> dict:
     }
 
 
-def _generar_codigo_prensa(datos: dict) -> str | None:
-    """Genera el código de prensa si tenemos suficiente información.
-    Formato preferido: SIGLA-YYYY-MM-DD-PXX (cuando el OCR lo trae tal cual).
-    Si no, se construye SIGLA-codigo_fuente usando la sigla detectada del
-    nombre de archivo (_sigla_periodico, ver orchestrator) y el número de
-    referencia real de la nota (ej. "2026/102337", impreso junto a cada aviso).
-    Siglas: LP (La Prensa), ML (Metro Libre), LE (La Estrella), SEJ (Colombia)."""
-    pais = datos.get("pais")
-    codigo_fuente = datos.get("codigo_fuente")
+_MESES_ES = {
+    1: "ENE", 2: "FEB", 3: "MAR", 4: "ABR", 5: "MAY", 6: "JUN",
+    7: "JUL", 8: "AGO", 9: "SEP", 10: "OCT", 11: "NOV", 12: "DIC",
+}
 
-    # Si ya hay un codigo_fuente del OCR que parece tener formato de prensa, usarlo
+# Siglas oficiales por periódico (regla del cliente). Colombia usa siempre
+# SEJ porque solo tiene una fuente semanal (el boletín SEJURE).
+_SIGLAS_PERIODICO = {
+    "LA PRENSA": "LP",
+    "METRO LIBRE": "ML",
+    "LA ESTRELLA": "LE",
+}
+
+
+def _sigla_desde_periodico(periodico, pais) -> str | None:
+    if pais == 2:
+        return "SEJ"
+    if not periodico:
+        return None
+    p = _normalizar(periodico)
+    if p in ("LP", "ML", "LE"):
+        return p
+    for nombre, sigla in _SIGLAS_PERIODICO.items():
+        if nombre in p:
+            return sigla
+    return None
+
+
+def _formatear_fecha_prensa(fecha_prensa) -> str | None:
+    """fecha_prensa viene en formato YYYY-MM-DD (así lo pide el prompt).
+    Devuelve DDMESAAAA en español, mayúsculas y sin acentos (ej. "08JUL2026"),
+    que es el formato que usa el cliente en el código de prensa."""
+    if not fecha_prensa:
+        return None
+    import re as _re
+    m = _re.match(r"(\d{4})-(\d{1,2})-(\d{1,2})", str(fecha_prensa).strip())
+    if not m:
+        return None
+    anio, mes, dia = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    mes_txt = _MESES_ES.get(mes)
+    if not mes_txt:
+        return None
+    return f"{dia:02d}{mes_txt}{anio}"
+
+
+def _generar_codigo_prensa(datos: dict) -> str | None:
+    """Genera el código de prensa con el formato REAL pedido por el cliente:
+    INICIAL + DD + MES(3 letras) + AAAA + PÁGINA (tal cual impresa), sin
+    separadores. Ej: La Estrella, 8 de julio de 2026, página 1C -> "LE08JUL20261C".
+
+    Se construye a partir de periodico + fecha_prensa + pagina_prensa, que el
+    modelo lee directamente del encabezado/pie de la página (NO del cuerpo del
+    aviso). Si falta alguno de los tres, se deja en null para completarlo a
+    mano en el panel -- no se inventa ni se asume un periódico por defecto."""
+    pais = datos.get("pais")
+    sigla = _sigla_desde_periodico(datos.get("periodico"), pais) or datos.get("_sigla_periodico")
+    fecha_fmt = _formatear_fecha_prensa(datos.get("fecha_prensa"))
+    pagina = str(datos.get("pagina_prensa") or "").strip().upper()
+
+    if sigla and fecha_fmt and pagina:
+        return f"{sigla}{fecha_fmt}{pagina}"
+
+    # Fallback legado: avisos de antes de este cambio pudieron traer un
+    # codigo_fuente con pinta de código de prensa; se respeta si existe.
+    codigo_fuente = datos.get("codigo_fuente")
     if codigo_fuente and any(s in str(codigo_fuente).upper() for s in ["LP", "ML", "LE", "SEJ"]):
         return codigo_fuente
 
-    sigla = datos.get("_sigla_periodico")
-    if not sigla:
-        if pais == 2:
-            sigla = "SEJ"
-        elif pais == 1:
-            sigla = "LP"  # sin más datos, asumir LP (La Prensa) como default
-        else:
-            return None
-
-    if codigo_fuente:
-        return f"{sigla}-{codigo_fuente}"
-    return None  # Sin sigla+fecha de periódico ni número de nota, dejar null para completar manual
+    return None  # Datos insuficientes: mejor null que un código inventado
 
 
-# La descripción de PORTADA debe ser un resumen corto; el detalle largo va en
-# descripcion_completa. Si la IA devuelve una portada larga, se corrige aquí
-# de forma determinista (sin volver a llamar a la IA).
+# La descripción de PORTADA debe ser un resumen corto (regla del cliente: máx
+# 15 palabras); el detalle largo va en descripcion_completa. Si la IA devuelve
+# una portada larga, se corrige aquí de forma determinista (sin volver a
+# llamar a la IA), aplicando el tope de PALABRAS como regla principal y el de
+# caracteres como red de seguridad adicional.
 LARGO_MAX_DESCRIPCION_PORTADA = 220
+MAX_PALABRAS_DESCRIPCION_PORTADA = 15
 
 
 def _resumir_descripcion_portada(datos: dict) -> None:
     desc = str(datos.get("descripcion") or "").strip()
-    if len(desc) <= LARGO_MAX_DESCRIPCION_PORTADA:
+    if not desc:
+        return
+    excede_palabras = len(desc.split()) > MAX_PALABRAS_DESCRIPCION_PORTADA
+    excede_chars = len(desc) > LARGO_MAX_DESCRIPCION_PORTADA
+    if not excede_palabras and not excede_chars:
         return
     # Preservar el texto largo como descripción completa si no vino aparte
     if not str(datos.get("descripcion_completa") or "").strip():
@@ -186,11 +236,17 @@ def _resumir_descripcion_portada(datos: dict) -> None:
         i = desc_u.find(marca)
         if i != -1:
             corte = min(corte, i)
-    resumen = desc[:min(corte, LARGO_MAX_DESCRIPCION_PORTADA)].rstrip(" ,.;:-")
-    # No cortar a media palabra
-    if len(resumen) == LARGO_MAX_DESCRIPCION_PORTADA and " " in resumen:
-        resumen = resumen[:resumen.rfind(" ")].rstrip(" ,.;:-")
-    datos["descripcion"] = resumen
+    recortado = desc[:corte].rstrip(" ,.;:-")
+    # Regla principal del cliente: máximo 15 palabras
+    palabras = recortado.split()
+    if len(palabras) > MAX_PALABRAS_DESCRIPCION_PORTADA:
+        recortado = " ".join(palabras[:MAX_PALABRAS_DESCRIPCION_PORTADA])
+    # Red de seguridad adicional: tope de caracteres
+    if len(recortado) > LARGO_MAX_DESCRIPCION_PORTADA:
+        recortado = recortado[:LARGO_MAX_DESCRIPCION_PORTADA]
+        if " " in recortado:
+            recortado = recortado[:recortado.rfind(" ")]
+    datos["descripcion"] = recortado.rstrip(" ,.;:-")
 
 
 def aplicar_reglas(datos: dict) -> dict:

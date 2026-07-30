@@ -193,4 +193,7 @@ def _serializar_aviso(a: Aviso) -> dict:
         "email_observaciones": a.email_observaciones,
         "codigo_fuente": a.codigo_fuente,
         "codigo_ubicacion_prensa": a.codigo_ubicacion_prensa,
+        "periodico": a.periodico,
+        "fecha_prensa": a.fecha_prensa,
+        "pagina_prensa": a.pagina_prensa,
     }

@@ -18,6 +18,9 @@ def _migrar_columnas():
             ("descripcion_completa", "TEXT"),
             ("prevista", "TEXT"),
             ("codigo_ubicacion_prensa", "VARCHAR"),
+            ("periodico", "VARCHAR"),
+            ("fecha_prensa", "VARCHAR"),
+            ("pagina_prensa", "VARCHAR"),
         ],
         "documentos": [
             ("texto_ocr", "TEXT"),
@@ -124,7 +127,8 @@ def editar_aviso(aviso_id: int, campos: dict, db: Session = Depends(get_db)):
         "fianza", "minimo", "categoria", "categoria_codigo", "provincia",
         "codigo_ubicacion", "codigo_ubicacion_prensa", "finca_matr", "lote_casa",
         "plano", "superficie", "estado",
-        "codigo_prensa", "email_observaciones", "codigo_fuente", "prevista"
+        "codigo_prensa", "email_observaciones", "codigo_fuente", "prevista",
+        "periodico", "fecha_prensa", "pagina_prensa",
     ]
 
     # Campos que NO son datos del periódico (no sirven para aprendizaje de OCR)
