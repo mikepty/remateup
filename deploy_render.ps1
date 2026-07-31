@@ -1,5 +1,11 @@
+$apiKey = $env:RENDER_API_KEY
+if (-not $apiKey) {
+    Write-Error "RENDER_API_KEY no está definida. Exporta la variable de entorno antes de ejecutar."
+    exit 1
+}
+
 $headers = @{
-    "Authorization" = "Bearer rnd_M38zWxuG4tBOlVSyg4Mpgi9KTJ06"
+    "Authorization" = "Bearer $apiKey"
     "Content-Type" = "application/json"
 }
 

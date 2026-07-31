@@ -1,0 +1,83 @@
+{
+  "version": "1.0",
+  "created": "2026-07-30",
+  "description": "Golden dataset records for V2 pipeline evaluation",
+  "baseline_metrics": {
+    "total_avisos": 39,
+    "total_documentos": 3,
+    "confianza_promedio": 0.8749,
+    "tasa_automatizacion": 100.0,
+    "por_pais": {"PA": 23, "CO": 16}
+  },
+  "test_suites": [
+    {
+      "id": "colombia_pdf_tabular",
+      "name": "Colombia SEJURE PDF",
+      "type": "pdf_tabular",
+      "pais": "CO",
+      "document_id": 1,
+      "files": [
+        "SEJURE_28_JULIO_2025_JANETH_RODRIGUEZ_parte1.pdf",
+        "SEJURE_28_JULIO_2025_JANETH_RODRIGUEZ_parte2.pdf",
+        "SEJURE_28_JULIO_2025_JANETH_RODRIGUEZ_parte3.pdf"
+      ],
+      "expected_count": 16,
+      "critical_fields": ["expediente", "demandante", "demandado", "base"],
+      "expected_avisos": [
+        {"expediente": "2023-01327", "demandante": "Rogers Edilberto Matallana Pov", "demandado": "Luz Marina Cardenas Hernandez", "base": 181080000.0, "fianza_porcentaje": 40.0, "minimo_porcentaje": 70.0},
+        {"expediente": "2014-00383", "demandante": "BBVA", "demandado": "Robinson Ortiz", "base": 337153300.0, "fianza_porcentaje": 40.0, "minimo_porcentaje": 70.0},
+        {"expediente": "2019-00058", "demandante": "Jonathan Castañeda Gaitán", "demandado": "Carmen Castiblanco de Avila", "base": 44826656.0, "fianza_porcentaje": 40.0, "minimo_porcentaje": 70.0},
+        {"expediente": "2017-00141", "demandante": "Banco Agrario de Colombia", "demandado": "Flor Useche", "base": 199250000.0, "fianza_porcentaje": 40.0, "minimo_porcentaje": 70.0},
+        {"expediente": "2013-00074", "demandante": "Utrahuilca", "demandado": null, "base": 2797500.0, "fianza_porcentaje": 40.0, "minimo_porcentaje": 70.0},
+        {"expediente": "2017-01197", "demandante": "BBVA", "demandado": "Alex Jimenez", "base": 124720000.0, "fianza_porcentaje": 40.0, "minimo_porcentaje": 70.0},
+        {"expediente": "2019-00872", "demandante": "Banco Davivienda", "demandado": "Alba Yesenia Pinilla y otros", "base": 186661000.0, "fianza_porcentaje": 40.0, "minimo_porcentaje": 70.0},
+        {"expediente": "2021-00025", "demandante": "Manuel Francisco Peña", "demandado": "Inversiones Mas Megocios SAS", "base": 512606992.0, "fianza_porcentaje": 40.0, "minimo_porcentaje": 70.0},
+        {"expediente": "2024-00055", "demandante": "Juan Bernardo Idarraga", "demandado": "Jairo Alberto Echeverry", "base": 169764000.0, "fianza_porcentaje": 40.0, "minimo_porcentaje": 70.0},
+        {"expediente": "2016-00311", "demandante": "Cielo Yasmin Cabrera", "demandado": "Lucia del Carmen Insandara", "base": 2127300000.0, "fianza_porcentaje": 40.0, "minimo_porcentaje": 70.0},
+        {"expediente": "2018-00180", "demandante": "Mauricio Alfonso Baron", "demandado": "Yudy Parra", "base": 384955500.0, "fianza_porcentaje": 40.0, "minimo_porcentaje": 70.0},
+        {"expediente": "2019-00302", "demandante": "Banco Davivienda", "demandado": "Denisse Lizcano Jimenez", "base": 268450000.0, "fianza_porcentaje": 40.0, "minimo_porcentaje": 70.0},
+        {"expediente": "2016-00712", "demandante": "Silvia Restrepo", "demandado": "Centro de Formacion Artistico", "base": 189975000.0, "fianza_porcentaje": 40.0, "minimo_porcentaje": 70.0},
+        {"expediente": "2017-00455", "demandante": "Bancolombia", "demandado": "Mauricio Ramirez", "base": 1211881500.0, "fianza_porcentaje": 40.0, "minimo_porcentaje": 70.0},
+        {"expediente": "2012-00536", "demandante": "Conjunto Residencial Los Lagar", "demandado": "Jairo Ignacio Gomez y otros", "base": 545698500.0, "fianza_porcentaje": 40.0, "minimo_porcentaje": 70.0},
+        {"expediente": "2022-00933", "demandante": "Banco Davivienda", "demandado": "Milena Carolina Ramirez", "base": 158187000.0, "fianza_porcentaje": 40.0, "minimo_porcentaje": 70.0}
+      ]
+    },
+    {
+      "id": "panama_newspaper",
+      "name": "Panama Newspaper Batch",
+      "type": "newspaper_images",
+      "pais": "PA",
+      "document_id": 2,
+      "files": [
+        "21ce358d_1.jpg", "21ce358d_2.jpg", "5b48a468_1.jpg",
+        "9a1ef910_1.jpg", "9a1ef910_2.jpg", "c84594ff_1.jpg",
+        "c84594ff_2.jpg", "dfe0e387_1.jpg", "dfe0e387_2.jpg"
+      ],
+      "expected_count": 20,
+      "critical_fields": ["expediente", "demandante", "demandado", "base"],
+      "expected_avisos": [
+        {"expediente": "1029202000030580", "demandante": "Financiera Familiar, S.A.", "demandado": "Ismael Bonilla Atencio", "base": 100000.0},
+        {"expediente": "2724202000000490", "demandante": "J.D.H., S.A.", "demandado": "Ismary del Carmen Puga", "base": 175000.0},
+        {"expediente": "2724202000000300", "demandante": "Financiera Familiar, S.A.", "demandado": "Elpidio Oses Guerra", "base": 137000.0}
+      ]
+    },
+    {
+      "id": "panama_individual",
+      "name": "Panama Individual Avisos",
+      "type": "individual_images",
+      "pais": "PA",
+      "document_id": 3,
+      "files": [
+        "IMG-20260710-WA0014.jpg", "IMG-20260710-WA0018.jpg",
+        "imagen1.jpg", "imagen2.jpg"
+      ],
+      "expected_count": 3,
+      "critical_fields": ["expediente", "demandante", "base"],
+      "expected_avisos": [
+        {"expediente": "112235-24", "demandante": "BANCO GENERAL S.A.", "demandado": "LUIS EDUARDO GONZALEZ ACEVEDO", "base": 5000.0},
+        {"expediente": "76478-2025", "demandante": "THE BANK OF NOVA SCOTIA", "demandado": "DENIS ROBERTO BORTOTO DA SILVA", "base": 68871.8},
+        {"expediente": "8633-2025", "demandante": "EL BANCO NACIONAL DE PANAMA", "demandado": "LESLIE KATHERINE VERGARA ENGLE", "base": 60800.0}
+      ]
+    }
+  ]
+}

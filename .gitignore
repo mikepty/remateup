@@ -24,3 +24,18 @@ backend/data/uploads/
 # Node
 whatsapp-bridge/node_modules/
 whatsapp-bridge/auth_info/
+# FASE DEPLOY — adiciones auditadas (sin eliminar reglas existentes)
+.env.*
+cache/
+ocr_cache/
+production/output/
+evaluation/output/
+reports/
+logs/
+*.db-journal
+frontend/.firebase/
+ocr_*.txt
+**/output/
+**/audit/
+evaluation_results.json
+evaluation/real_data/*.json
