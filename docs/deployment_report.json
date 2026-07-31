@@ -21,7 +21,15 @@
   "render": {
     "url": "https://remateup-backend.onrender.com",
     "status": 200,
-    "deploy": "autoDeploy via push a master (verificado por HTTP publico)"
+    "deploy": "autoDeploy via push a master (verificado por HTTP publico)",
+    "api_verificacion": {
+      "service_id": "srv-d99ci0ok1i2s73e081i0",
+      "ultimo_deploy": "LIVE",
+      "commit_deployed": "0032532",
+      "created_at": "2026-07-31T23:41:21Z",
+      "finished_at": "2026-07-31T23:42:13Z",
+      "trigger": "new_commit"
+    }
   },
   "firebase": {
     "proyecto": "remateup-panel",
@@ -34,9 +42,10 @@
   "errores": 0,
   "warnings": [
     "Token de Render hardcodeado en historial (deploy_render.ps1, commit 3f7061d) - corregido en codigo; rotar token",
-    "ZAI_API_KEY y GEMINI_API_KEY ausentes en .env local (presentes en Render)",
+    "ZAI_API_KEY provista por el usuario devuelve 401 Authentication Failed (key invalida/revocada en api.z.ai) - verificar en console.z.ai",
+    "GEMINI_API_KEY solo existe en Render (confirmada por el usuario); no en .env local",
     "Documentos CO de prueba 119/120 permanecen en produccion",
-    "Estado exacto del build de Render no consultable sin RENDER_API_KEY"
+    "Los nombres de env vars de Render no son visibles via API v1 (enmascarados)"
   ],
   "rollback": {
     "disponible": true,
