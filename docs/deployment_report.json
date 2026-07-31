@@ -1,0 +1,49 @@
+{
+  "fase": "DEPLOY",
+  "fecha": "2026-07-31",
+  "version": "V2 Certified - Phase 13 Completed",
+  "commit": "a7a38ff",
+  "commit_anterior": "5d845ba",
+  "branch": "master",
+  "origin": "https://github.com/mikepty/remateup.git",
+  "tests": {"total": 1004, "nuevos_fase13": 78, "regresiones": 0},
+  "health_check": "HEALTHY",
+  "health_checks_detalle": ["parser", "knowledge", "schema", "validator", "registry", "sqlite", "config"],
+  "smoke_test_local": "PASS",
+  "smoke_test_produccion": {
+    "status": "PASS",
+    "pa_documento_id": 121,
+    "pa_avisos": 2,
+    "co_documento_ids": [119, 120],
+    "co_avisos": 10
+  },
+  "benchmark_rapido": {"documentos": 16, "diferencias_entre_modos": 0},
+  "render": {
+    "url": "https://remateup-backend.onrender.com",
+    "status": 200,
+    "deploy": "autoDeploy via push a master (verificado por HTTP publico)"
+  },
+  "firebase": {
+    "proyecto": "remateup-panel",
+    "url": "https://remateup-panel.web.app",
+    "status": 200,
+    "deploy": "hosting only, configuracion existente no sobrescrita"
+  },
+  "variables_verificadas": ["GOOGLE_VISION_API_KEY", "ZAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "DATABASE_URL", "FIREBASE"],
+  "limpieza_panama": {"endpoint": "/admin/limpiar_pais/PA", "resultado": "panama: 0 avisos"},
+  "errores": 0,
+  "warnings": [
+    "Token de Render hardcodeado en historial (deploy_render.ps1, commit 3f7061d) - corregido en codigo; rotar token",
+    "ZAI_API_KEY y GEMINI_API_KEY ausentes en .env local (presentes en Render)",
+    "Documentos CO de prueba 119/120 permanecen en produccion",
+    "Estado exacto del build de Render no consultable sin RENDER_API_KEY"
+  ],
+  "rollback": {
+    "disponible": true,
+    "git": "git revert a7a38ff",
+    "render": "Deploys -> rollback a 5d845ba",
+    "firebase": "Console -> Hosting -> rollback a version anterior",
+    "perdida_de_datos": false
+  },
+  "estado_final": "PRODUCTION: DEPLOYED"
+}

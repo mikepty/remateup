@@ -39,3 +39,4 @@ ocr_*.txt
 **/audit/
 evaluation_results.json
 evaluation/real_data/*.json
+firebase-debug.log
