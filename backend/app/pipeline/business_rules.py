@@ -252,14 +252,45 @@ def _resumir_descripcion_portada(datos: dict) -> None:
 
 
 def _generar_prevista(datos: dict) -> str | None:
-    """Ubicación limpia para Google Maps del inmueble (approximada si el aviso
+    """Ubicación limpia para Google Maps del inmueble (aproximada si el aviso
     solo da la zona). Si el modelo ya la extrajo, se respeta. Si no, se arma a
-    partir de la descripción corta + provincia, que casi siempre contienen el
-    lote/corregimiento/distrito. Así el mapa SIEMPRE tiene algo que buscar."""
+    partir de la descripción completa primero (tiene más contexto), luego
+    descripción corta + provincia."""
     prevista = str(datos.get("prevista") or "").strip()
-    if prevista:
+    if prevista and len(prevista) > 10:
         return prevista
 
+    # Estrategia mejorada: buscar ubicación en descripcion_completa primero
+    desc_completa = str(datos.get("descripcion_completa") or "").strip()
+    if desc_completa:
+        # Buscar patrones de ubicación común en Panamá
+        import re
+        # Patrón: Corr: XXX, Dist: XXX, Prov: XXX
+        match_ubicacion = re.search(
+            r'(?:Corr(?:egimiento)?|Distrito|Dist)[:\s]+([A-Za-zÁÉÍÓÚáéíóúÑñ\s]+?)(?:,|\.|\s+Dist|\s+Prov)',
+            desc_completa, re.IGNORECASE
+        )
+        if match_ubicacion:
+            ubicacion = match_ubicacion.group(1).strip()
+            provincia = str(datos.get("provincia") or "").strip()
+            if provincia:
+                return f"{ubicacion}, {provincia}"
+            return ubicacion
+        
+        # Patrón: lote/finca con ubicación (ej: "LOTE 212, Arraiján")
+        match_lote = re.search(
+            r'(?:LOTE|FINCA|APARTAMENTO|CASA)[^,\.]+,\s*([A-Za-zÁÉÍÓÚáéíóúÑñ\s]+?)(?:,|\.|\s+PANAM)',
+            desc_completa, re.IGNORECASE
+        )
+        if match_lote:
+            ubicacion = match_lote.group(1).strip()
+            if len(ubicacion) > 3 and len(ubicacion) < 40:
+                provincia = str(datos.get("provincia") or "").strip()
+                if provincia:
+                    return f"{ubicacion}, {provincia}"
+                return ubicacion
+
+    # Fallback: descripción corta + provincia
     partes = []
     desc = str(datos.get("descripcion") or "").strip()
     if desc and len(desc) <= 150:
@@ -282,6 +313,17 @@ def _generar_prevista(datos: dict) -> str | None:
 def aplicar_reglas(datos: dict) -> dict:
     """Recibe el dict de datos extraídos y le agrega/corrige campos codificados."""
     datos = dict(datos)  # copia, no mutar el original
+
+    # Limpiar marcadores de límite de documento en descripciones
+    for campo in ("descripcion", "descripcion_completa"):
+        texto = str(datos.get(campo) or "").strip()
+        if "LIMITE_DOCUMENTO" in texto:
+            # Remover todo desde >>> hasta <<< inclusive
+            import re
+            texto = re.sub(r'>>>.*?LIMITE_DOCUMENTO.*?<<<', '', texto, flags=re.DOTALL)
+            # Limpiar espacios múltiples resultantes
+            texto = re.sub(r'\s+', ' ', texto).strip()
+            datos[campo] = texto
 
     _resumir_descripcion_portada(datos)
 
