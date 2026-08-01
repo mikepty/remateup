@@ -182,6 +182,41 @@ def test_buscar_base_no_toma_monto_de_aviso_vecino():
     assert _buscar_base_en_ocr(d, texto) is None
 
 
+def test_buscar_base_no_toma_cuantia_del_aviso_anterior():
+    """La CUANTIA del aviso ANTERIOR (dentro de los 2000 chars previos al
+    expediente, como en la página real de La Prensa) NO debe usarse como base:
+    el monto propio del aviso viene DESPUÉS de su expediente."""
+    texto = ("AVISO DE REMATE E-99999-25 ... CUANTIA DEL EMBARGO: "
+             "CINCUENTA Y UN MIL SETECIENTOS CINCUENTA (B/.51,750.00) ... "
+             "AVISO DE REMATE E-54802-25 ... CUANTIA DEL EMBARGO: "
+             "SETENTA Y CUATRO MIL (B/.74,000.00) ...")
+    d = {"expediente": "54802-25", "base": None}
+    assert _buscar_base_en_ocr(d, texto) == 74000.0
+
+
+def test_buscar_base_no_toma_valor_del_traspaso_del_folio():
+    """El folio real dentro del aviso trae OTROS montos (valor del traspaso,
+    hipoteca) que NO son la base. La base real se expresa como
+    'servirá de base para el remate la cifra de B/.X'."""
+    texto = ("AVISO DE REMATE E-54802-25/mb ... FOLIO: 80102-123735 "
+             "EL VALOR DEL TRASPASO ES CINCUENTA Y UN MIL SETECIENTOS "
+             "CINCUENTA BALBOAS(B/.51,750.00) TITULAR(ES) ... hipoteca POR "
+             "LA SUMA DE B/.46.575.00 CON UN PLAZO ... no hay entradas "
+             "pendientes. Servirá de base para el remate la cifra de "
+             "B/.74,000.00 (valor de mercado)")
+    d = {"expediente": "54802-25", "base": None}
+    assert _buscar_base_en_ocr(d, texto) == 74000.0
+
+
+def test_buscar_base_por_cuantia_con_acento():
+    """El OCR real escribe 'CUANTÍA DEL EMBARGO' con tilde; el patrón debe
+    tolerarla."""
+    texto = ("AVISO DE REMATE (Exp. 214012026) ... CUANTÍA DEL EMBARGO: "
+             "CUARENTA Y DOS MIL SETECIENTOS (B/.42,733.11) CLAUSULAS ...")
+    d = {"expediente": "214012026", "base": None}
+    assert _buscar_base_en_ocr(d, texto) == 42733.11
+
+
 def test_buscar_base_si_ya_hay_base_no_toca():
     texto = "AVISO DE REMATE ... la base del remate B/.5,800.00"
     d = {"expediente": "132472-24", "base": "74000.0"}

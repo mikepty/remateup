@@ -73,11 +73,17 @@ def _ventana_aviso_ocr(texto_ocr: str, pos: int, antes: int = 2000, despues: int
 
 def _buscar_base_en_ocr(datos: dict, texto_ocr: str) -> float | None:
     """Red de seguridad: si la IA no asoció el monto (base) del aviso, se busca
-    determinísticamente en el texto OCR cerca del expediente. Solo patrones
-    específicos del aviso ("la base del remate es decir la suma de B/.X" o
-    "CUANTIA DEL EMBARGO ... (B/.X)") son confiables cuando hay otro aviso
-    pegado; el patrón genérico B/.X se usa solo si no hay otro encabezado
-    de remate entre el expediente y el monto."""
+    determinísticamente en el texto OCR DESPUÉS del expediente (el monto de un
+    aviso siempre está en el cuerpo, después de su encabezado).
+
+    Solo patrones específicos de la base del remate son confiables:
+    - "la base del remate, es decir la suma de B/.X"
+    - "servirá de base para el remate la cifra de B/.X"
+    - "CUANTÍA DEL EMBARGO: ... (B/.X)"
+    El patrón genérico B/.X es peligroso: el folio real dentro del aviso trae
+    OTROS montos (valor del traspaso, hipoteca). Solo se usa si hay una palabra
+    clave de base/cuantía dentro de los 80 chars anteriores Y no hay otro aviso
+    entre el expediente y el monto."""
     base = datos.get("base")
     if base not in (None, "", "null"):
         return None
@@ -93,7 +99,7 @@ def _buscar_base_en_ocr(datos: dict, texto_ocr: str) -> float | None:
             pos = texto_ocr.find(solo_digitos)
         if pos == -1:
             return None
-    ventana = _ventana_aviso_ocr(texto_ocr, pos)
+    ventana = _ventana_aviso_ocr(texto_ocr, pos, antes=0)
 
     def _monto(grupo: str) -> float | None:
         """Convierte el grupo capturado a float, tolerando el punto final de
@@ -104,19 +110,28 @@ def _buscar_base_en_ocr(datos: dict, texto_ocr: str) -> float | None:
         except ValueError:
             return None
 
-    m = re.search(r"la base del remate\s*,?\s*es decir\s+la\s+suma\s+de\s+"
-                  r"[B]\s*/\s*\.\s*([\d.,]+)", ventana, re.IGNORECASE)
-    if not m:
-        m = re.search(r"CUANTIA\s+DEL\s+EMBARGO\s*:.*?\(\s*[B]\s*/\s*\.\s*([\d.,]+)\s*\)",
-                      ventana, re.IGNORECASE)
-    if m:
-        return _monto(m.group(1))
-    # Patrón genérico: solo si entre el expediente y el monto NO hay otro aviso
+    for patron in (
+        r"la base del remate\s*,?\s*es decir\s+la\s+suma\s+de\s+"
+        r"[B]\s*/\s*\.\s*([\d.,]+)",
+        r"base para el remate\s+la\s+cifra\s+de\s+"
+        r"[B]\s*/\s*\.\s*([\d.,]+)",
+        r"CUANT[IÍ]A\s+DEL\s+EMBARGO\s*:.*?\(\s*[B]\s*/\s*\.\s*([\d.,]+)\s*\)",
+    ):
+        m = re.search(patron, ventana, re.IGNORECASE)
+        if m:
+            return _monto(m.group(1))
+    # Patrón genérico: solo con palabra clave de base cerca y sin otro aviso
+    # entre el expediente y el monto (el folio trae "valor del traspaso",
+    # hipotecas y otros B/. que NO son la base del remate).
     resto = texto_ocr[pos:pos + 4000]
     if "AVISO DE REMATE" in resto.upper().replace("AVISO DE REMATE", "", 1):
         return None
     m = re.search(r"[B]\s*/\s*\.\s*([\d.,]{5,})", ventana)
     if m:
+        previo = ventana[max(0, m.start() - 80):m.start()].upper()
+        if not any(k in previo for k in ("BASE", "AVALU", "AVALÚ", "CIFRA",
+                                         "SUMA", "CUANT", "EMBARGO", "REMATE")):
+            return None
         valor = _monto(m.group(1))
         return valor if valor and 500.0 < valor < 1_000_000_000 else None
     return None
