@@ -16,6 +16,7 @@ import pytest
 from backend.app.pipeline.extractor_deterministico import (
     _extraer_partes,
     _extraer_aviso,
+    _extraer_fianza_pct,
     extraer,
 )
 from backend.app.pipeline.orchestrator import _buscar_base_en_ocr
@@ -116,6 +117,46 @@ def test_codigo_ubicacion_prensa_longitud_variable():
     texto2 = "AVISO DE REMATE Expediente No. 54802-25 ... Código de ubicación: 123456 ... "
     item2 = _extraer_aviso(texto2, "PA", 0)
     assert item2["datos"]["codigo_ubicacion_prensa"] == "123456"
+
+
+@pytest.mark.parametrize("texto, esperado", [
+    # Formato judicial real más frecuente (verificado en doc104_ocr.txt)
+    ("se requiere consignar previamente el diez por ciento ( 10 % ) de la base", 10.0),
+    ("el VEINTICINCO POR CIENTO ( 25 % ) de la base del remate", 25.0),
+    ("se requiere consignar el 25 % de la suma señalada como base del remate", 25.0),
+    ("para habilitarse como postor se requiere consignar previamente el 10 % de", 10.0),
+    ("el diez ( 10 % ) de la suma señalada como base", 10.0),
+    ("participar deberá consignar el diez por ciento ( 10 % ) de la diferencia", 10.0),
+    # Forma clásica con keyword FIANZA (caso de unidades / AVISO_54802)
+    ("... FIANZA 10%.", 10.0),
+    # Colombia: 40% fijo
+    ("la fianza es del 40 % de la base", 40.0),
+])
+def test_fianza_pct_formatos_reales(texto, esperado):
+    assert _extraer_fianza_pct(texto) == esperado
+
+
+@pytest.mark.parametrize("texto", [
+    # El mínimo usa 50/66.67/100 — NUNCA debe confundirse con la fianza.
+    "posturas admisibles las sumas que cubran las dos terceras partes (2/3) de la base",
+    "mitad de la base = 50 %",
+    "DOS TERCERAS PARTES ( 66.8 % ) de la base",
+    "totalidad de la base = 100 %",
+])
+def test_fianza_pct_no_confunde_con_minimo(texto):
+    assert _extraer_fianza_pct(texto) is None
+
+
+def test_extraer_aviso_le_fianza_real_judicial():
+    """Un aviso judicial real escribe la fianza como 'el 10 % de la base' (sin
+    keyword FIANZA); antes del fix quedaba fianza_pct = None y la aviso quedaba
+    en esperando_aprobacion con fianza/mínimo en blanco."""
+    texto = ("AVISO DE REMATE Expediente No. 214012026 ... servirá de base para "
+             "el remate, la suma de B/.49,531.65 ... para habilitarse como postor "
+             "se requiere consignar previamente el 10 % de la base del remate.")
+    item = _extraer_aviso(texto, "PA", 0)
+    assert item["datos"]["fianza_porcentaje"] == 10.0
+    assert item["confianza"]["fianza_porcentaje"] == 0.9
 
 
 def test_codigo_ubicacion_prensa_alfanumerico():

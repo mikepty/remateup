@@ -38,6 +38,50 @@ _MESES = {
 
 _CONFIANZA_ALTA = 0.9
 
+# Porcentajes legales de FIANZA (PA: 10/20/25 ; CO: 40 fijo).
+# Se usa para VALIDAR cualquier porcentaje leído: el mínimo usa 50/66.67/100,
+# conjunto disjunto, de modo que nunca se confunden.
+_PORCENTAJES_FIANZA_VALIDOS = {10, 20, 25, 40}
+_PALABRAS_FIANZA = {"diez": 10, "veinte": 20, "veinticinco": 25, "cuarenta": 40}
+
+
+def _extraer_fianza_pct(texto: str) -> float | None:
+    """Extrae el porcentaje de FIANZA (10/20/25 PA, 40 CO).
+
+    El aviso lo escribe casi siempre como 'diez por ciento ( 10 % )' o
+    'VEINTICINCO POR CIENTO ( 25 % )', a veces solo '10 %', y rara vez junto
+    a la palabra 'FIANZA'. Por eso no se puede exigir la keyword 'FIANZA':
+    el regex viejo (`FIANZA...X%`) dejaba fiana_pct = None en los judiciales
+    reales, con lo que ni la fianza ni el 'Mínimo para participar' se calculaban.
+    """
+    # 1) 'FIANZA' seguido del % (caso clásico / del test de unidades)
+    m = re.search(r"FIANZA[^\d]{0,50}?(\d{1,2})\s*%", texto, re.IGNORECASE)
+    if m:
+        v = int(m.group(1))
+        if v in _PORCENTAJES_FIANZA_VALIDOS:
+            return float(v)
+    # 2) 'diez por ciento ( 10 % )' con número entre paréntesis (formato real)
+    for m in re.finditer(r"\b(diez|veinte|veinticinco|cuarenta)\s+por\s+ciento\s*\(\s*(\d{1,2})\s*%",
+                         texto, re.IGNORECASE):
+        v = int(m.group(2))
+        if v in _PORCENTAJES_FIANZA_VALIDOS:
+            return float(v)
+    # 3) 'diez por ciento' en palabras, sin número entre paréntesis
+    #    (ej. 'participar con diez por ciento'). El mínimo usa cincuenta/cien,
+    #    nunca 10/20/25/40, así que no hay colisión.
+    for m in re.finditer(r"\b(diez|veinte|veinticinco|cuarenta)\s+por\s+ciento", texto, re.IGNORECASE):
+        return float(_PALABRAS_FIANZA[m.group(1).lower()])
+    # 4) Forma judicial real: 'el 10 % de la base', 'VEINTICINCO POR CIENTO ( 25 % )',
+    #    'el diez ( 10 % ) de la suma', 'el 25 % de la base del remate'.
+    #    Como el conjunto de porcentajes de fianza {10,20,25,40} es DISYUNTO del
+    #    de mínimo {50,66.67,100}, cualquier token '% ' con valor en el conjunto
+    #    legal es fianza; recoger el primero en aparecer.
+    for m in re.finditer(r"(\d{1,2})\s*%", texto):
+        v = int(m.group(1))
+        if v in _PORCENTAJES_FIANZA_VALIDOS:
+            return float(v)
+    return None
+
 
 def _posiciones_avisos(texto: str) -> list[int]:
     """Posiciones donde EMPIEZA un aviso de remate (encabezado en mayúsculas).
@@ -264,9 +308,9 @@ def _extraer_aviso(texto: str, pais: str, idx: int, header_offset: int | None = 
         datos["hora"] = hora
         confianza["hora"] = _CONFIANZA_ALTA
 
-    fianza_pct = _buscar(r"FIANZA[^\d]{0,50}?(\d{1,2})\s*%", texto_limpio)
+    fianza_pct = _extraer_fianza_pct(texto_limpio)
     if fianza_pct:
-        datos["fianza_porcentaje"] = float(fianza_pct)
+        datos["fianza_porcentaje"] = fianza_pct
         confianza["fianza_porcentaje"] = _CONFIANZA_ALTA
 
     minimo_pct = None
@@ -298,6 +342,9 @@ def _extraer_aviso(texto: str, pais: str, idx: int, header_offset: int | None = 
     if datos["provincia"]:
         partes_desc.append(datos["provincia"])
     datos["descripcion"] = ", ".join(partes_desc)
+    # La descripción es construida (no OCR-libre) a partir de campos ya validados,
+    # por lo que es confiable: lleva confianza alta (no queda pendiente por esto).
+    confianza["descripcion"] = _CONFIANZA_ALTA
 
     datos["descripcion_completa"] = texto_limpio.strip()[:3000]
     datos["codigo_fuente"] = f"det-{idx}"

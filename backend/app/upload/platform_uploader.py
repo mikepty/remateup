@@ -79,8 +79,9 @@ def _construir_payload(aviso: Aviso) -> dict:
         "demandante": aviso.demandante or "",
         "demandado": aviso.demandado or "",
 
-        # Descripción del bien
-        "descripcion": aviso.descripcion or "",
+        # Descripción del bien: la COMPLETA dentro del aviso (la resumida corta
+        # solo se usa en la portada/preview). Si no vino completa, usar la resumida.
+        "descripcion": aviso.descripcion_completa or aviso.descripcion or "",
 
         # Valores económicos
         # PA: "Base del remate" / CO: "Avalúo del remate"
