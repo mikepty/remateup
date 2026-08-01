@@ -285,12 +285,33 @@ def ocr_imagen(ruta: str) -> str:
 
 def ocr_multiples_imagenes(rutas: list[str]) -> str:
     """OCR de varias imágenes (ej. superior + inferior de una página).
-    Devuelve el texto concatenado en orden."""
+    
+    Si son 2 imágenes (típico de Panamá: mitad superior + inferior de una
+    página vertical), las reconstruye como un lienzo vertical único donde las
+    columnas continúan de la imagen superior a la inferior.
+    
+    Si es 1 imagen o 3+, las procesa independientemente y concatena."""
+    if len(rutas) == 2:
+        # Caso especial: 2 imágenes = mitades superior/inferior de UNA página
+        # Obtener anotaciones RAW de Vision para reconstruir el lienzo completo
+        anotaciones = []
+        for i, ruta in enumerate(rutas):
+            data = pathlib.Path(ruta).read_bytes()
+            anotacion = _ocr_imagen_bytes_raw(data)
+            anotaciones.append(anotacion)
+            print(f"[ocr_vision] Imagen {i+1} ({ruta}): anotación obtenida")
+        
+        # Reconstruir como lienzo vertical: columnas de img1 continúan en img2
+        texto = _reconstruir_lienzo_vertical(anotaciones)
+        lineas = texto.split('\n')[:5]
+        print(f"[ocr_vision] Lienzo vertical reconstruido: {len(texto)} caracteres, primeras lineas: {' | '.join(lineas[:3])}")
+        return texto
+    
+    # Caso general: 1 imagen o 3+ imágenes → procesar independiente
     partes = []
     for i, ruta in enumerate(rutas):
         texto = ocr_imagen(ruta)
         partes.append(texto)
-        # Log primeras lineas para debug
         lineas = texto.split('\n')[:5]
         print(f"[ocr_vision] Imagen {i+1}: {len(texto)} caracteres, primeras lineas: {' | '.join(lineas[:3])}")
     return "\n\n".join(partes)
