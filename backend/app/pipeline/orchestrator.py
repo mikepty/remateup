@@ -99,7 +99,9 @@ def _buscar_base_en_ocr(datos: dict, texto_ocr: str) -> float | None:
             pos = texto_ocr.find(solo_digitos)
         if pos == -1:
             return None
-    ventana = _ventana_aviso_ocr(texto_ocr, pos, antes=0)
+    # La base suele estar lejos del encabezado (el folio va en medio); el corte
+    # real lo da el siguiente "AVISO DE REMATE" dentro de _ventana_aviso_ocr.
+    ventana = _ventana_aviso_ocr(texto_ocr, pos, antes=0, despues=15000)
 
     def _monto(grupo: str) -> float | None:
         """Convierte el grupo capturado a float, tolerando el punto final de
@@ -112,10 +114,12 @@ def _buscar_base_en_ocr(datos: dict, texto_ocr: str) -> float | None:
 
     for patron in (
         r"la base del remate\s*,?\s*es decir\s+la\s+suma\s+de\s+"
-        r"[B]\s*/\s*\.\s*([\d.,]+)",
+        r"[B8]\s*/\s*\.\s*([\d.,]+)",
         r"base para el remate\s+la\s+cifra\s+de\s+"
-        r"[B]\s*/\s*\.\s*([\d.,]+)",
-        r"CUANT[IÍ]A\s+DEL\s+EMBARGO\s*:.*?\(\s*[B]\s*/\s*\.\s*([\d.,]+)\s*\)",
+        r"[B8]\s*/\s*\.\s*([\d.,]+)",
+        r"base para el remate\s*,?\s*la\s+suma\s+de"
+        r"[^)]{0,200}?\(?\s*[B8]?\s*/\s*\.\s*([\d.,]+)",
+        r"CUANT[IÍ]A\s+DEL\s+EMBARGO\s*:.*?\(\s*[B8]\s*/\s*\.\s*([\d.,]+)\s*\)",
     ):
         m = re.search(patron, ventana, re.IGNORECASE)
         if m:
@@ -126,7 +130,7 @@ def _buscar_base_en_ocr(datos: dict, texto_ocr: str) -> float | None:
     resto = texto_ocr[pos:pos + 4000]
     if "AVISO DE REMATE" in resto.upper().replace("AVISO DE REMATE", "", 1):
         return None
-    m = re.search(r"[B]\s*/\s*\.\s*([\d.,]{5,})", ventana)
+    m = re.search(r"[B8]\s*/\s*\.\s*([\d.,]{5,})", ventana)
     if m:
         previo = ventana[max(0, m.start() - 80):m.start()].upper()
         if not any(k in previo for k in ("BASE", "AVALU", "AVALÚ", "CIFRA",

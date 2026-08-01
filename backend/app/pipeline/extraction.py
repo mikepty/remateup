@@ -322,13 +322,29 @@ def _llamar_ia(prompt_completo: str) -> tuple[str, str]:
 
 def _estructurar_texto_ocr(texto_ocr: str, pais: str = "PA") -> list[dict]:
     """Envía TEXTO (ya extraído por OCR) a la IA para estructurarlo en avisos.
-    Es text-only: barato, rápido y sin alucinaciones (el modelo tiene el texto real)."""
+    Es text-only: barato, rápido y sin alucinaciones (el modelo tiene el texto real).
+
+    Si NINGUNA IA está disponible (sin saldo/sin llave), cae al extractor
+    DETERMINÍSTICO (regex) para que el pipeline nunca se quede muerto: los
+    avisos salen con confianza baja y quedan en esperando_aprobacion."""
     if not texto_ocr or len(texto_ocr.strip()) < 20:
         print("[extraction] Texto OCR vacío o muy corto")
         return []
 
     prompt = _construir_prompt_texto(pais)
-    text, motor = _llamar_ia(f"{prompt}\n\n=== TEXTO OCR ===\n{texto_ocr}")
+    try:
+        text, motor = _llamar_ia(f"{prompt}\n\n=== TEXTO OCR ===\n{texto_ocr}")
+    except Exception as e:
+        print(f"[extraction] IA no disponible ({str(e)[:120]}); usando extractor DETERMINISTICO")
+        from . import extractor_deterministico
+        resultado = extractor_deterministico.extraer(texto_ocr, pais)
+        for item in resultado:
+            item.setdefault("datos", {})
+            item.setdefault("confianza", {})
+            for campo in CAMPOS:
+                item["datos"].setdefault(campo, None)
+                item["confianza"].setdefault(campo, 0.0)
+        return resultado
 
     text = text.strip().replace("```json", "").replace("```", "").strip()
     print(f"[extraction] {motor} estructuró ({len(text)} chars): {text[:200]}")
