@@ -239,7 +239,10 @@ def _extraer_aviso(texto: str, pais: str, idx: int, header_offset: int | None = 
         datos["superficie"] = superficie
         confianza["superficie"] = _CONFIANZA_ALTA
 
-    codigo_ubic = _buscar(r"CODIGO\s+DE\s+UBICACION\s*:?\s*(\d{3,5})", texto_limpio)
+    m_cod = re.search(
+        r"C[OÓ]DIGO\s+DE\s+UBICACI[OÓ]N\s*:?\s*([A-ZÑÁÉÍÓÚ0-9]{1,6})(?:[,;)\s]|$)",
+        texto_limpio, re.IGNORECASE)
+    codigo_ubic = m_cod.group(1) if m_cod and re.search(r"\d", m_cod.group(1)) else None
     if codigo_ubic:
         datos["codigo_ubicacion_prensa"] = codigo_ubic
         confianza["codigo_ubicacion_prensa"] = _CONFIANZA_ALTA

@@ -15,10 +15,11 @@ MAPEO REAL DE CAMPOS (confirmado con capturas de la app RemateHoy, Play Store):
   lote_casa                -> "Lote o número de casa"            -> igual
   codigo                   -> "#PA64103320" / "#CO64103994"      -> la plataforma asigna el #
 
-  codigo_ubicacion          -> "Código de Ubicación" (ej. "8706", "4701")
-                             -> NO coincide con la tabla de provincias del docx (que va de 1 a 43).
-                                Es un código de 4 dígitos más granular (posible corregimiento/registro),
-                                probablemente impreso en el aviso original.
+  codigo_ubicacion_prensa -> "Código de Ubicación" (ej. "8706", "4506")
+                             -> código impreso en el aviso original (número de
+                                dígitos VARIABLE, normalmente 1-6). El cliente lo
+                                usa como referencia para ubicarse cerca al abrir
+                                Maps. Respaldo: codigo_ubicacion (provincia 1-43).
 
 RemateHoy es una app Android (Play Store), no un sitio web -- Playwright no
 aplica directo. Ver notas de integración más abajo (API REST vs Appium).
@@ -65,7 +66,9 @@ def _construir_payload(aviso: Aviso) -> dict:
 
         # Ubicación
         "provincia_o_departamento": aviso.provincia or "",
-        "codigo_ubicacion": str(aviso.codigo_ubicacion) if aviso.codigo_ubicacion else "",
+        # "Código de Ubicación": el código impreso en el aviso (número de
+        # dígitos variable), con respaldo al de provincia.
+        "codigo_ubicacion": str(aviso.codigo_ubicacion_prensa or aviso.codigo_ubicacion or ""),
 
         # Proceso judicial
         "juzgado": aviso.lugar or "",

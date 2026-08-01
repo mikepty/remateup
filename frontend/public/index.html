@@ -583,8 +583,9 @@ function cardAviso(a, pendiente){
   // Email de observaciones
   const emailObs = a.email_observaciones ? `<div style="margin-top:4px;font-size:10px;color:var(--navy);">📧 ${a.email_observaciones}</div>` : '';
 
-  // Prevista (ubicación para Google Maps)
-  const previstaHtml = a.prevista ? `<div style="margin-top:4px;font-size:10px;color:var(--green);"><a href="https://www.google.com/maps/search/${encodeURIComponent(a.prevista)}" target="_blank" style="color:var(--green);text-decoration:none;">📍 ${a.prevista}</a></div>` : '';
+  // Prevista (ubicación para Google Maps) + código de ubicación impreso en el
+  // aviso (referencia para ubicarse cerca al abrir Maps)
+  const previstaHtml = linkPrevista(a) ? `<div style="margin-top:4px;font-size:10px;color:var(--green);">${linkPrevista(a)}</div>` : '';
 
   return `
     <div class="aviso-card">
@@ -628,6 +629,16 @@ function cardAviso(a, pendiente){
     </div>`;
 }
 
+// Link de Google Maps para un aviso. Incluye la prevista y, si existe, el
+// código de ubicación impreso en el aviso (referencia para ubicarse cerca).
+function linkPrevista(a){
+  const cod=a.codigo_ubicacion_prensa||'';
+  const query=[a.prevista,cod].filter(Boolean).join(' ');
+  if(!query) return '';
+  const label=[a.prevista||'Código de ubicación',cod?('cód. '+cod):''].filter(Boolean).join(' · ');
+  return '<a href="https://www.google.com/maps/search/'+encodeURIComponent(query)+'" target="_blank" style="color:var(--green);text-decoration:none;">📍 '+label+'</a>';
+}
+
 function detalleCard(a){
   const falt=(a.campos_faltantes||[]).map(c=>'<span style="background:#fee2e2;color:#991b1b;padding:1px 6px;border-radius:4px;font-size:9px;margin-right:3px;">'+c+'</span>').join('')||'<span style="color:var(--gray)">—</span>';
   // Expediente completo en el detalle
@@ -645,7 +656,7 @@ function detalleCard(a){
       <div class="campo"><span class="k">Codigo de Prensa</span><span class="v">${a.codigo_prensa||'—'}</span></div>
       <div class="campo"><span class="k">Email (Observaciones)</span><span class="v">${a.email_observaciones||'—'}</span></div>
     </div>
-    <div class="campo-full"><span class="k">Ubicacion para Mapa (Prevista)</span><div class="v">${a.prevista?'<a href="https://www.google.com/maps/search/'+encodeURIComponent(a.prevista)+'" target="_blank" style="color:var(--green);">📍 '+a.prevista+'</a>':'—'}</div></div>
+    <div class="campo-full"><span class="k">Ubicacion para Mapa (Prevista)</span><div class="v">${linkPrevista(a)||'—'}</div></div>
     <div class="campo-full"><span class="k">Partes</span><div class="v">Demandante: ${a.demandante||'—'}</div><div class="v">Demandado: ${a.demandado||'—'}</div></div>
     <div class="campo-full"><span class="k">Descripcion completa del bien</span><div class="v" style="line-height:1.5;">${descCompleta}</div></div>
     <div class="detalle-grid" style="margin-top:10px;">
@@ -820,7 +831,7 @@ function abrirEditor(id){
           <label style="font-size:10px;color:var(--gray);">Finca/Folio</label>
           <input id="ed_finca_matr" value="${a.finca_matr||''}" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
           <label style="font-size:10px;color:var(--gray);">Cód. Ubicación (periódico)</label>
-          <input id="ed_codigo_ubicacion_prensa" value="${a.codigo_ubicacion_prensa||''}" placeholder="ej. 8900" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
+          <input id="ed_codigo_ubicacion_prensa" value="${a.codigo_ubicacion_prensa||''}" placeholder="ej. 8706 o 8A03" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
           <label style="font-size:10px;color:var(--gray);">Categoria</label>
           <select id="ed_categoria" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;">${catOptions}</select>
           <label style="font-size:10px;color:var(--gray);">Estado</label>

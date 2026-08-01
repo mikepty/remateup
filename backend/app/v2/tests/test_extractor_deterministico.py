@@ -106,3 +106,22 @@ def test_no_toma_valor_del_folio_como_base():
              "BALBOAS CON DIEZ) ...")
     base = _buscar_base_en_ocr({"expediente": "126990-25", "base": None}, texto)
     assert base is None
+
+
+def test_codigo_ubicacion_prensa_longitud_variable():
+    """El código de ubicación impreso NO siempre tiene 4 dígitos."""
+    texto = "AVISO DE REMATE Expediente No. 54802-25 ... Código de ubicación: 87 ... "
+    item = _extraer_aviso(texto, "PA", 0)
+    assert item["datos"]["codigo_ubicacion_prensa"] == "87"
+    texto2 = "AVISO DE REMATE Expediente No. 54802-25 ... Código de ubicación: 123456 ... "
+    item2 = _extraer_aviso(texto2, "PA", 0)
+    assert item2["datos"]["codigo_ubicacion_prensa"] == "123456"
+
+
+def test_codigo_ubicacion_prensa_alfanumerico():
+    """El código puede ser alfanumérico (ej. San Miguelito '8A03'): se captura
+    el token completo, no solo el primer dígito."""
+    texto = ("AVISO DE REMATE Expediente No. 64136-25 ... (INMUEBLE) SAN "
+             "MIGUELITO CODIGO DE UBICACION 8A03, FOLIO REAL...")
+    item = _extraer_aviso(texto, "PA", 0)
+    assert item["datos"]["codigo_ubicacion_prensa"] == "8A03"

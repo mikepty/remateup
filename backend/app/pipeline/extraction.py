@@ -29,7 +29,7 @@ SYSTEM_PROMPT = "Responde SOLO con un array JSON válido. Sin texto, sin explica
 GUIA_CAMPOS_AMBIGUOS = """
 === CAMPOS QUE NO DEBES CONFUNDIR ===
 - finca_matr: el número de FINCA o FOLIO REAL del inmueble (aparece junto a la palabra "Finca" o "Folio Real"). Ej: "Finca: 30269571" -> finca_matr = "30269571".
-- codigo_ubicacion_prensa: el "Código de ubicación" que imprime el periódico, es OTRO número (normalmente 4 dígitos), NO es la finca. Ej: "Código de ubicación: 4506" -> codigo_ubicacion_prensa = "4506". Si el aviso no trae explícitamente un "código de ubicación" impreso, deja este campo en null (NO copies ahí el número de finca).
+- codigo_ubicacion_prensa: el "Código de ubicación" que imprime el periódico, es OTRO número (puede ser numérico o alfanumérico, y de longitud VARIABLE, normalmente 1-6 caracteres; NO asumas que siempre son 4 dígitos), NO es la finca. Ej: "Código de ubicación: 4506" -> codigo_ubicacion_prensa = "4506"; "CODIGO DE UBICACION 8A03" -> codigo_ubicacion_prensa = "8A03". Si el aviso no trae explícitamente un "código de ubicación" impreso, deja este campo en null (NO copies ahí el número de finca).
 - email_observaciones: SOLO un correo electrónico (formato usuario@dominio), y SOLO si aparece impreso en el aviso. Si no hay ningún correo electrónico en el texto del aviso, este campo debe ser null. NUNCA pongas aquí descripciones, montos, nombres, ni texto de otro aviso/edicto/documento.
 - descripcion vs descripcion_completa: ver instrucciones más abajo.
 - periodico / fecha_prensa / pagina_prensa: son datos DEL PERIÓDICO (la publicación), no del remate. Se leen del encabezado o pie de página de la hoja (ej. "La Prensa, Panamá, jueves 9 de julio de 2026 ... 7B"), NO del cuerpo del aviso:

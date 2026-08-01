@@ -59,7 +59,7 @@ class Aviso(Base):
     email_observaciones = Column(String, nullable=True)  # correo electrónico extraído de observaciones
     descripcion_completa = Column(Text, nullable=True)  # descripción completa del bien (detalle largo)
     prevista = Column(Text, nullable=True)  # texto limpio de ubicación para Google Maps (ej. "332 m2, PH Princesa y Condesa del Mar, Corr: Bella Vista, Dist: Panamá")
-    codigo_ubicacion_prensa = Column(String, nullable=True)  # código de ubicación REAL impreso en el periódico, junto a la finca/folio (NO es el código de provincia; ej. "8900")
+    codigo_ubicacion_prensa = Column(String, nullable=True)  # código de ubicación REAL impreso en el periódico, junto a la finca/folio (NO es el código de provincia; número de dígitos variable, ej. "4506")
     periodico = Column(String, nullable=True)  # nombre del periódico TAL CUAL aparece impreso en la página (ej. "La Prensa", "La Estrella", "Metro Libre")
     fecha_prensa = Column(String, nullable=True)  # fecha de la EDICIÓN del periódico (no la del remate), formato YYYY-MM-DD, leída del encabezado/pie de página
     pagina_prensa = Column(String, nullable=True)  # página impresa donde salió el aviso, tal cual aparece (ej. "7B", "1C")
