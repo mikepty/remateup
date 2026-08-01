@@ -104,11 +104,16 @@ def limpiar_por_pais(pais: str, db: Session = Depends(get_db)):
     pais_num = 1 if pais == "PA" else 2 if pais == "CO" else None
     if pais_num is None:
         return {"error": "pais debe ser PA o CO"}
-    # Borrar avisos del país
+    # Borrar primero las referencias asociadas a avisos/documentos del país.
     avisos_ids = [a.id for a in db.query(Aviso).filter(Aviso.pais == pais_num).all()]
+    documentos_ids = [d.id for d in db.query(Documento).filter(Documento.pais == pais).all()]
     if avisos_ids:
         db.query(Aprobacion).filter(Aprobacion.aviso_id.in_(avisos_ids)).delete(synchronize_session=False)
         db.query(Auditoria).filter(Auditoria.aviso_id.in_(avisos_ids)).delete(synchronize_session=False)
+        db.query(Correccion).filter(Correccion.aviso_id.in_(avisos_ids)).delete(synchronize_session=False)
+    if documentos_ids:
+        db.query(Auditoria).filter(Auditoria.documento_id.in_(documentos_ids)).delete(synchronize_session=False)
+    db.query(Correccion).filter(Correccion.pais == pais_num).delete(synchronize_session=False)
     db.query(Aviso).filter(Aviso.pais == pais_num).delete(synchronize_session=False)
     db.query(Documento).filter(Documento.pais == pais).delete(synchronize_session=False)
     db.commit()

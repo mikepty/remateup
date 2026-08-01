@@ -176,7 +176,7 @@ def exportar_excel(
     db: Session = Depends(get_db),
 ):
     """Exporta avisos a Excel. Soporta filtros: pais, estado, o IDs especificos."""
-    query = db.query(Aviso)
+    query = db.query(Aviso).filter(Aviso.estado != "eliminado")
 
     if pais:
         pais_code = 1 if pais.upper() == "PA" else 2
@@ -254,7 +254,7 @@ def resumen_export(
     db: Session = Depends(get_db),
 ):
     """Devuelve un resumen de lo que se exportaría."""
-    query = db.query(Aviso)
+    query = db.query(Aviso).filter(Aviso.estado != "eliminado")
     if pais:
         pais_code = 1 if pais.upper() == "PA" else 2
         query = query.filter(Aviso.pais == pais_code)

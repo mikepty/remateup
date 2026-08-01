@@ -14,6 +14,7 @@ Sin red ni BD: todas las funciones son puras.
 import pytest
 
 from backend.app.pipeline.extractor_deterministico import (
+    completar_campos_vacios_desde_descripcion,
     _extraer_partes,
     _extraer_aviso,
     _extraer_fianza_pct,
@@ -166,3 +167,37 @@ def test_codigo_ubicacion_prensa_alfanumerico():
              "MIGUELITO CODIGO DE UBICACION 8A03, FOLIO REAL...")
     item = _extraer_aviso(texto, "PA", 0)
     assert item["datos"]["codigo_ubicacion_prensa"] == "8A03"
+
+
+def test_completa_campos_vacios_desde_descripcion_completa_panama():
+    datos = {
+        "pais": 1,
+        "expediente": "54802-25",
+        "finca_matr": None,
+        "plano": None,
+        "fianza_porcentaje": None,
+        "descripcion_completa": (
+            "AVISO DE REMATE Expediente No. 99999-25. FINCA 7452623, "
+            "PLANO 80717-135068. Para participar deberá consignar el 10 % "
+            "de la base del remate."
+        ),
+    }
+    confianza = {"expediente": 0.98, "finca_matr": 0.0, "plano": 0.0,
+                 "fianza_porcentaje": 0.0}
+
+    completados = completar_campos_vacios_desde_descripcion(datos, confianza)
+
+    assert datos["expediente"] == "54802-25"  # nunca sobrescribe el valor existente
+    assert datos["finca_matr"] == "7452623"
+    assert datos["plano"] == "80717-135068"
+    assert datos["fianza_porcentaje"] == 10.0
+    assert completados == ["fianza_porcentaje", "finca_matr", "plano"]
+
+
+def test_no_completa_campos_desde_descripcion_para_colombia():
+    datos = {"pais": 2, "finca_matr": None,
+             "descripcion_completa": "AVISO DE REMATE FINCA 7452623"}
+    confianza = {"finca_matr": 0.0}
+
+    assert completar_campos_vacios_desde_descripcion(datos, confianza) == []
+    assert datos["finca_matr"] is None

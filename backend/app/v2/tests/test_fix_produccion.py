@@ -295,3 +295,16 @@ def test_remate_normal_no_es_miscelaneo(sin_bd):
     salida = aplicar_reglas(d)
     assert salida["categoria_codigo"] == 2
     assert salida["categoria"] == "APARTAMENTO"
+
+
+def test_descripcion_portada_conserva_hasta_30_palabras(sin_bd):
+    descripcion = " ".join(f"palabra{i}" for i in range(1, 26))
+    salida = aplicar_reglas({"pais": 1, "descripcion": descripcion})
+    assert salida["descripcion"] == descripcion
+
+
+def test_descripcion_portada_recorta_despues_de_30_palabras(sin_bd):
+    descripcion = " ".join(f"palabra{i}" for i in range(1, 36))
+    salida = aplicar_reglas({"pais": 1, "descripcion": descripcion})
+    assert len(salida["descripcion"].split()) == 30
+    assert salida["descripcion_completa"] == descripcion

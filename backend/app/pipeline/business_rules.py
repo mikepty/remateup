@@ -209,13 +209,13 @@ def _generar_codigo_prensa(datos: dict) -> str | None:
     return None  # Datos insuficientes: mejor null que un código inventado
 
 
-# La descripción de PORTADA debe ser un resumen corto (regla del cliente: máx
-# 15 palabras); el detalle largo va en descripcion_completa. Si la IA devuelve
+# La descripción de PORTADA debe ser un resumen legible (regla del cliente: máx
+# 30 palabras); el detalle largo va en descripcion_completa. Si la IA devuelve
 # una portada larga, se corrige aquí de forma determinista (sin volver a
 # llamar a la IA), aplicando el tope de PALABRAS como regla principal y el de
 # caracteres como red de seguridad adicional.
-LARGO_MAX_DESCRIPCION_PORTADA = 220
-MAX_PALABRAS_DESCRIPCION_PORTADA = 15
+LARGO_MAX_DESCRIPCION_PORTADA = 350
+MAX_PALABRAS_DESCRIPCION_PORTADA = 30
 
 
 def _resumir_descripcion_portada(datos: dict) -> None:
@@ -237,15 +237,17 @@ def _resumir_descripcion_portada(datos: dict) -> None:
         if i != -1:
             corte = min(corte, i)
     recortado = desc[:corte].rstrip(" ,.;:-")
-    # Regla principal del cliente: máximo 15 palabras
+    # Regla principal del cliente: máximo 30 palabras
     palabras = recortado.split()
     if len(palabras) > MAX_PALABRAS_DESCRIPCION_PORTADA:
         recortado = " ".join(palabras[:MAX_PALABRAS_DESCRIPCION_PORTADA])
-    # Red de seguridad adicional: tope de caracteres
+    # Red de seguridad adicional: tope de caracteres solo si aún excede después del corte de palabras
     if len(recortado) > LARGO_MAX_DESCRIPCION_PORTADA:
-        recortado = recortado[:LARGO_MAX_DESCRIPCION_PORTADA]
-        if " " in recortado:
-            recortado = recortado[:recortado.rfind(" ")]
+        palabras_finales = recortado.split()
+        # Reducir palabra por palabra hasta que quepa
+        while palabras_finales and len(" ".join(palabras_finales)) > LARGO_MAX_DESCRIPCION_PORTADA:
+            palabras_finales.pop()
+        recortado = " ".join(palabras_finales) if palabras_finales else recortado[:LARGO_MAX_DESCRIPCION_PORTADA].rsplit(" ", 1)[0]
     datos["descripcion"] = recortado.rstrip(" ,.;:-")
 
 

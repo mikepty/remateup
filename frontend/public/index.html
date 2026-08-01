@@ -620,6 +620,7 @@ function cardAviso(a, pendiente){
       <div class="aviso-footer">
         <button class="btn btn-primary" onclick="toggleDet(${a.id})">Ver</button>
         <button class="btn btn-warning" onclick="abrirEditor(${a.id})">Editar</button>
+        <button class="btn btn-danger" onclick="eliminarAviso(${a.id})">Eliminar</button>
         ${pendiente?`
           <button class="btn btn-success" onclick="aprobar(${a.id},true)">Aprobar</button>
           <button class="btn btn-danger" onclick="aprobar(${a.id},false)">Rechazar</button>
@@ -676,6 +677,17 @@ function detalleCard(a){
 }
 
 function toggleDet(id){ const el=$('det-'+id); if(el) el.classList.toggle('show'); }
+
+async function eliminarAviso(id){
+  if(!confirm('¿Eliminar este aviso? Podrá restaurarse desde la API administrativa.')) return;
+  try{
+    const r = await fetch(apiUrl('/admin/aviso/'+id+'?confirm=true'),{method:'DELETE'});
+    const data = await r.json();
+    if(!r.ok) throw new Error(data.detail||data.error||('HTTP '+r.status));
+    todosLosAvisos = todosLosAvisos.filter(x=>x.id!==id);
+    await cargarTodo();
+  }catch(e){ alert('No se pudo eliminar el aviso: '+e.message); }
+}
 
 // Filtros
 

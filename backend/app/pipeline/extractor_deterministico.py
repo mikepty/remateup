@@ -38,6 +38,12 @@ _MESES = {
 
 _CONFIANZA_ALTA = 0.9
 
+_CAMPOS_RESPALDO_DESCRIPCION = {
+    "expediente", "lugar", "demandante", "demandado", "lote_casa",
+    "superficie", "finca_matr", "codigo_ubicacion_prensa", "plano", "fecha",
+    "hora", "base", "fianza_porcentaje", "minimo_porcentaje",
+}
+
 # Porcentajes legales de FIANZA (PA: 10/20/25 ; CO: 40 fijo).
 # Se usa para VALIDAR cualquier porcentaje leído: el mínimo usa 50/66.67/100,
 # conjunto disjunto, de modo que nunca se confunden.
@@ -350,6 +356,30 @@ def _extraer_aviso(texto: str, pais: str, idx: int, header_offset: int | None = 
     datos["codigo_fuente"] = f"det-{idx}"
 
     return {"datos": datos, "confianza": confianza}
+
+
+def completar_campos_vacios_desde_descripcion(datos: dict, confianza: dict) -> list[str]:
+    """Recupera campos explícitos que la IA dejó vacíos aunque estén presentes
+    en ``descripcion_completa``. Nunca reemplaza datos existentes ni copia
+    campos inferidos por el extractor determinístico."""
+    if datos.get("pais") != 1:
+        return []
+    texto = str(datos.get("descripcion_completa") or "").strip()
+    if len(texto) < 20:
+        return []
+
+    respaldo = _extraer_aviso(texto, "PA", 0)
+    completados = []
+    for campo in _CAMPOS_RESPALDO_DESCRIPCION:
+        if datos.get(campo) not in (None, "", "null"):
+            continue
+        valor = respaldo["datos"].get(campo)
+        if valor in (None, "", "null") or respaldo["confianza"].get(campo, 0) <= 0:
+            continue
+        datos[campo] = valor
+        confianza[campo] = respaldo["confianza"][campo]
+        completados.append(campo)
+    return sorted(completados)
 
 
 def _buscar_base_desde_ocr(datos: dict, texto: str):

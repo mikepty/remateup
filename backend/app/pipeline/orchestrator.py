@@ -5,7 +5,7 @@ import json
 import re
 from sqlalchemy.orm import Session
 from ..models import Documento, Aviso
-from . import extraction, business_rules, validation, confidence, audit
+from . import extraction, business_rules, validation, confidence, audit, extractor_deterministico
 from ..whatsapp.notifier import enviar_solicitud_aprobacion
 from ..upload.platform_uploader import subir_a_plataforma
 
@@ -176,6 +176,14 @@ def procesar_documento(db: Session, documento: Documento) -> list[Aviso]:
     for idx, item in enumerate(resultados):
         try:
             item["datos"]["_sigla_periodico"] = sigla_periodico
+
+            campos_recuperados = extractor_deterministico.completar_campos_vacios_desde_descripcion(
+                item["datos"], item["confianza"])
+            if campos_recuperados:
+                audit.registrar(
+                    db, "extraction", "campos_recuperados_descripcion_completa",
+                    f"Item {idx}: {', '.join(campos_recuperados)}",
+                    documento_id=documento.id)
 
             # Respaldos deterministas desde el texto OCR (la IA a veces no
             # asocia la cabecera del diario ni el monto si quedaron lejos):

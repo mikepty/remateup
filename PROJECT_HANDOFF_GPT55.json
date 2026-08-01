@@ -1,0 +1,255 @@
+{
+  "project": "RemateUp",
+  "version": "2",
+  "tagline": "Agente autónomo de captura, validación y carga de avisos de remate judicial (Panamá/Colombia).",
+  "repo": {
+    "url": "https://github.com/mikepty/remateup",
+    "branch": "master",
+    "local_path": "C:\\Users\\user\\Documents\\RemateUp",
+    "commits_on_master": ["2591bfb", "f9e5d5b"],
+    "frontend_files_tracked": ["frontend/public/index.html", "frontend/firebase.json", "frontend/.firebaserc", "frontend/public/favicon.svg"],
+    "backend_py_tracked_count": 267,
+    "frontend_is_single_file": true,
+    "ci_cd": "none (.github/workflows absent). Deploy via Render autoDeploy + Firebase CLI."
+  },
+  "summary": {
+    "backend": "FastAPI + uvicorn, Python 3.12, SQLAlchemy 2.0, Postgres(Rail free tier in prod) + SQLite(local). V1 modular pipeline + V2 14-stage refactor.",
+    "frontend": "Single inline HTML/CSS/JS SPA at frontend/public/index.html (1057 lines); Firebase Hosting.",
+    "production": "V1 is live on Render; V2 not yet in production. Only GEMINI_API_KEY + DATABASE_URL configured on Render.",
+    "maturity": "V1 production (39 avisos, 130 auditoria). V2 built but blocked locally (segmenter NameError, missing PyMuPDF/psycopg2).",
+    "certification": "No external certification. 'Certification' is an internal pipeline stage + aviso lifecycle state."
+  },
+  "architecture": {
+    "tech_stack": {
+      "runtime": "python 3.12",
+      "framework": "fastapi, uvicorn[standard]",
+      "orm": "sqlalchemy 2.0",
+      "pdf": "pypdf, PyMuPDF (PyMuPDF NOT installed in venv)",
+      "excel": "openpyxl",
+      "image": "Pillow",
+      "db_postgres": "psycopg2-binary (NOT installed in venv)",
+      "ia": ["google-genai (Gemini)", "anthropic (Claude, no key in prod)", "google-vision (OCR, no key in prod)"],
+      "frontend": "static html+inline css+js, firebase hosting",
+      "infra": {"render": "render.yaml", "firebase": "frontend/firebase.json"},
+      "tests": "pytest (no config; no conftest; no coverage)"
+    },
+    "v1": {
+      "pipeline_dir": "backend/app/pipeline",
+      "modules": ["audit.py","business_rules.py","confidence.py","extraction.py","extractor_deterministico.py","image_tiler.py","ocr_vision.py","orchestrator.py","pdf_colombia_parser.py","pdf_utils.py","validation.py","__init__.py"],
+      "models": "backend/app/models.py (Documento, Aviso, Aprobacion, Auditoria, Correccion)",
+      "routers": ["documents.py","dashboard.py","approvals.py","exports.py","admin_ext.py(additive, FASE14)"],
+      "db": {"local_sqlite": "backend/data/remateup.db", "prod": "Render Postgres remateup-db via DATABASE_URL"},
+      "entry": "backend/app/main.py (procesar_documento orchestrator; POST /documentos/subir)"
+    },
+    "v2": {
+      "root": "backend/app/v2",
+      "pipeline": "backend/app/v2/pipeline/runner.py (14 stages: Assembly->OCR->Mapping->Segmentation->Stitching->Newspaper Layout->Continuity->Parser->Knowledge->Validator->Normalizer->Confidence->Certification->Final JSON)",
+      "modules": {
+        "document": "backend/app/v2/document/{assembly,sequence,stitching,models}.py (+pdf_utils?)",
+        "ocr": "backend/app/v2/ocr/{client,mapper,models,processor}.py",
+        "segmenter": "backend/app/v2/segmenter/{models(engine,BLOCKED at :13),engine,block_detector,line_detector,column_detector,section_detector,continuity,newspaper_layout}.py",
+        "parser": "backend/app/v2/parser/{base,context,result,factory,registry}.py + documents/{panama_remate,colombia_remate}.py + ai/{policy,providers,integration,prompt,cache,rate_limit,audit,zai_resolver}.py",
+        "knowledge": "backend/app/v2/knowledge/{models,repository,trainer,rules,analyzer,metrics,shadow,services,integration}.py",
+        "normalization": "backend/app/v2/normalization/normalizer.py + per-type modules",
+        "confidence": "backend/app/v2/confidence/{final,ocr,parser,segment,knowledge,normalization}.py",
+        "validator": "backend/app/v2/validator/{orchestrator,models,...}.py",
+        "certification": "backend/app/v2/certification/{models,certifier}.py",
+        "fase8": "backend/app/v2/fase8 (exports 27 classes)",
+        "production": "backend/app/v2/production/{smoke,logs,output}/",
+        "evaluation": "backend/app/v2/evaluation/{accuracy,production}/"
+      },
+      "not_in_production": true
+    },
+    "dependencies": {
+      "frontend": ["V1 API REST (/documentos/*, /dashboard/*, /exportar/*, /aprobaciones/*, /admin/editar_aviso)"],
+      "v1_backend": ["V1 pipeline", "Postgres/SQLite", "Gemini (extraction)", "Google Vision (OCR, not configured in prod)", "WhatsApp bridge (not configured in prod)"],
+      "v2": ["V2 submodules inter-depend", "knowledge.db (sqlite)"],
+      "ai_resolver_v2": ["parser/ai/providers", "depends on policy.py (AI_ALLOWED_FIELDS)"]
+    },
+    "critical_modules": ["runner.py (stage order)", "business_rules.py (fianza/minimo/codigos)", "parser/factory.py", "knowledge/repository.py", "certification/"],
+    "never_break": ["V1 pipeline/routers/models/main", "exports Excel", "V1 Schema", "API contract", "frontend contract", "Knowledge sqlite schema", "Parser V2 (no V3)", "fianza/minimo rules", "PA/CO rules", "soft-delete policy (FASE14)"]
+  },
+  "ia_state": {
+    "gemini": {"configured_in_prod": true, "env_var": "GEMINI_API_KEY", "model_default": "gemini-2.5-flash", "role": "main extraction (extraction.py)"},
+    "anthropic": {"configured_in_prod": false, "env_var": "ANTHROPIC_API_KEY", "role": "fallback when MOTOR_IA=claude/auto-fails"},
+    "google_vision": {"configured_in_prod": false, "env_var": "GOOGLE_VISION_API_KEY", "role": "image OCR (ocr_vision.py / v2/ocr/processor.py)"},
+    "zai": {"configured": false, "env_var": "ZAI_API_KEY", "role": "provider (providers.py)"},
+    "local_fallback": {"role": "LocalResolver regex (providers.py:324) for AI_ALLOWED_FIELDS", "confidence": 0.96, "always_available": true},
+    "deterministic_fallback": {"role": "extractor_deterministico.py regex judicial fianza%", "note": "V1 fianza fix 2591bfb"},
+    "policy": {"allowed_fields": ["fecha_remate","hora","lugar","juzgado","provincia","municipio"], "forbidden_fields": ["expediente","finca","precio_base","base","fianza","minimo","matricula"], "found_threshold": 0.95, "review_min": 0.80, "not_found_below": 0.80},
+    "umbral_confianza": 0.70,
+    "cache": "parser/ai/cache.py (AICache) + cost in integration.py summary",
+    "rate_limit": "parser/ai/rate_limit.py (RateLimiter)",
+    "audit": "parser/ai/audit.py (AIAuditLog; provider/modelo/tokens/latencia/decision/campo/country)",
+    "knowledge_safety": "AI NEVER creates/modifies rules, never raises knowledge confidence, never changes training metrics (integration.py:19-21,202-209)"
+  },
+  "knowledge_engine": {
+    "db": "backend/app/v2/knowledge/knowledge.db (sqlite)",
+    "db_path_env": "KNOWLEDGE_DB_PATH",
+    "tables_schema": "backend/app/v2/knowledge/repository.py:18-99",
+    "tables": {"knowledge_rules":0,"knowledge_aliases":27,"corrections":0,"knowledge_history":0,"shadow_comparisons":0,"sqlite_sequence":1},
+    "aliases_detail": "27 rows, ALL status=PENDING, source='00000'->target='12345', field_name='finca', confidence=0.3, usage_count=0, created 2026-07-30/31 (synthetic dev seed)",
+    "v1_correcciones_table_in_local_remateup_db": false,
+    "learns_from": ["client corrections (Correccion/V1 editar_aviso)", "corrections table (V2)"],
+    "trainer": "backend/app/v2/knowledge/trainer.py (auto-approve conf>=0.7, evidence>=1)",
+    "empty_reason": "Built but never trained against real client corrections in this environment.",
+    "reports": ["knowledge/evolution (dashboard/aprendizaje)", "fa14 suggestions/reportes (learning/reports.py)"]
+  },
+  "countries": {
+    "PA": {"pais":1, "priority":"high (FASE 14)", "fianza_pct":[10,20,25], "minimo_pct":[66.67,50,100], "codigo_prefix":"PA64103", "parser":"panama_remate.py", "ocr":"image (Google Vision NOT configured in prod)", "knowledge":"empty", "status":"proven over text", "known_issues":["Google Vision not configured in prod -> image (periódico) OCR not active"]},
+    "CO": {"pais":2, "priority":"medium (maintain, do not break)", "fianza_pct":[40], "fianza":"40% FIXED (asumido por regla si OCR no lo lee)", "minimo_pct":[70,50,100], "codigo_prefix":"CO64104", "parser":"colombia_remate.py", "ocr":"PDF (pypdf/PyMuPDF; PyMuPDF not installed)", "knowledge":"empty", "status":"built, not validated on real PDFs in prod", "known_issues":["regex % complejo (_GAP_PERCENT/_NO_WORD); grid needs improvements (README:43-45)"]}
+  },
+  "pipeline": {
+    "v1_production": {
+      "entry": "POST /documentos/subir -> backend/app/pipeline/orchestrator.py:procesar_documento",
+      "stages": ["OCR/text extraction","IA extraction (Gemini)","Business rules (business_rules.py)","Validation (duplicates + required fields)","Confidence (UMBRAL_CONFIANZA 0.70)","Auto-upload(platform_uploader.py simulated) OR WhatsApp approval (approvals.py)","Auditoria","Export (exports.py)"],
+      "fianza_minimo": "base * pct/100 (business_rules.py:102-129); regex fallback (extractor_deterministico.py 2591bfb)",
+      "descripcion": "portada <=15 words / <=220 chars -> descripcion; detalle largo -> descripcion_completa (exports.py:86/138)",
+      "codigo_prensa": "SIGLA+DDMESAAAA+PAG (ej LE08JUL20261C)",
+      "codigo_interno": "PA64103XXX / CO64104XXX"
+    },
+    "v2_refactor": {
+      "entry": "backend/app/v2/pipeline/runner.py:PipelineRunner.process / AIEnhancedPipeline.run_files / run_text_pipeline",
+      "stages": ["assembly","ocr","mapping","segmentation","stitching","newspaper_layout","continuity","parser","knowledge","validator","normalizer","confidence","certification","final_json"],
+      "stage_result": "StageResult(status/duration_ms/warnings/errors/metrics) -> stages[k].to_dict()",
+      "final_json_keys": ["document","processing","stages","metrics","validation","knowledge","certification","performance","warnings","errors","statistics","field_confidence","rules_applied","rules_failed","duplicates","parser","normalization","validator"],
+      "ai_integration": "AIEnhancedPipeline enriches fields via enrich_fields (fallback only for allowed fields) then revalidates+recertifies",
+      "status": "built; NOT executable locally (segmenter NameError + PyMuPDF missing)"
+    }
+  },
+  "code_state": {
+    "modules_approx": 267,
+    "v1_pipeline_files": 13,
+    "routers": {"v1":["documents.py","dashboard.py","approvals.py","exports.py"],"v2_n_a":"v2 has no routers; uses runner directly","fase14_addon":["admin_ext.py"]},
+    "conventions": "abs imports from repo root (require PYTHONPATH=.); paquetes backend.app.*",
+    "dependency_injection": "FastAPI Depends(get_db); SessionLocal",
+    "factories": ["ParserFactory.get_parser(country, REMATE)","Certifier","FinalConfidenceCalculator","AIResolverRegistry.create_default()"],
+    "wrappers": ["KnowledgeAwareWrapper","AIEnhancedPipeline"],
+    "registries": ["ParserRegistry","AIResolverRegistry","KnowledgeRuleStatus"],
+    "repositories": ["KnowledgeRepository(sqlite knowledge.db)"],
+    "services": ["knowledge/services.py","approvals.py (whatsapp)","platform_uploader.py (simulated platform upload)"],
+    "dto": ["ParseResult","ParserContext","StageResult"],
+    "models_v1": ["Documento","Aviso","Aprobacion","Auditoria","Correccion"]
+  },
+  "frontend_state": {
+    "file": "frontend/public/index.html (single source file, inline CSS+JS)",
+    "api_base": "https://remateup-backend.onrender.com (hardcoded)",
+    "tabs": ["ultimos","pendientes","historial"],
+    "buttons_implemented": ["subirDocumento","limpiarSeleccion","moverArchivo","quitarArchivo","actualizarAyudaUpload","cambiarTab","simularTodas","simularUna","aprobar","reintentarDocumento","exportarExcel","exportarFiltrados","abrirEditor","guardarEdicion","cerrarEditor","monitorear","cargarMetricas","cargarPendientes","cargarHistorial","cargarAuditoria","mostrarUltimosProcesados","toggleDet"],
+    "backend_endpoints_used": ["GET /","POST /documentos/subir","GET /documentos/{id}","POST /documentos/{id}/reintentar","GET /dashboard/metricas","/dashboard/pendientes","/dashboard/todos","/dashboard/auditoria","PUT /admin/editar_aviso/{id}","POST /aprobaciones/{id}/manual","POST /aprobaciones/simular_una/{id}","POST /aprobaciones/simular_todas","GET /exportar/excel"],
+    "filters": ["uploadPais(PA/CO)","filtroPais(1/2)","filtroEstado(subido/auto_aprobado/esperando_aprobacion/reemplazado_por_republicacion)","filtroFechaRemate","filtroFechaSubida","filtroBuscar"],
+    "ux_issues": ["single 1057-line inline file (no build separation)","hardcoded API_BASE","3s fixed polling no backoff","client state in memory (lost on reload)"],
+    "pending": []
+  },
+  "backend_api": {
+    "root": "backend/app/main.py (FastAPI, 39 FastAPI routes incl. /docs/redoc/openapi; ~33 app endpoints)",
+    "health": "GET / -> {status:ok}",
+    "v1_endpoints": ["POST /documentos/subir","POST /documentos/subir_lote","GET /documentos/{id}","POST /documentos/{id}/reintentar","GET /dashboard/metricas","/dashboard/{pendientes,todos,historial,auditoria,aprendizaje,avisos}","GET /exportar/{excel,resumen}","POST /aprobaciones/{id}/manual","/aprobaciones/simular_una/{id}","/aprobaciones/simular_todas","/aprobaciones/webhook","POST /admin/limpiar_bd","/admin/limpiar_aprendizaje","/admin/limpiar_pais/{pais}","PUT /admin/editar_aviso/{id}","GET/POST /admin/debug_doc/{id}","/debug_reestructurar","/reprocesar_doc"],
+    "fase14_endpoints": ["GET /admin/sugerencias","/admin/prediccion","/admin/aviso/{id}/inteligencia","POST /admin/aviso/{id}/aplicar","DELETE /admin/aviso/{id}","POST /admin/aviso/{id}/restaurar","POST /admin/avisos/borrar","GET /admin/diagnostico","/admin/admin-dashboard","GET /admin/reportes/client_ready"],
+    "workers": "none (synchronous processing inside request; frontend polls monitorear 3s)",
+    "background_jobs": "none",
+    "notes": ["/admin/limpiar_bd performs PHYSICAL delete of avisos/aprobaciones/auditoria (V1); FASE14 adds soft-delete over it"]
+  },
+  "production": {
+    "render": {"service":"remateup-backend","runtime":"python 3.12","plan":"free","autoDeploy":true,"postgres":"remateup-db (free)","buildCommand":"cd backend && pip install -r requirements.txt","startCommand":"cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT"},
+    "firebase": {"hosting":"frontend/public","rewrites":"** -> /index.html","cors":"*"},
+    "env_vars_configured_in_render": ["GEMINI_API_KEY","DATABASE_URL"],
+    "env_vars_missing_in_render": ["ANTHROPIC_API_KEY","GOOGLE_VISION_API_KEY","MOTOR_IA","WHATSAPP_APROBADOR","WHATSAPP_BRIDGE_URL"],
+    "deploy_trigger": "push to master",
+    "last_deployed_commits": ["2591bfb (fianza fix)","f9e5d5b (FASE14 skeleton)"],
+    "db_prod": {"type":"Postgres (Render)","v1_local_sqlite":"backend/data/remateup.db (documentos=3, auditoria=130, avisos=39, aprobaciones=3)"},
+    "audit_sample": {"agentes":{"business_rules":39,"confidence":39,"extraction":3,"orchestrator":6,"platform_upload":40,"whatsapp":3}},
+    "backups": "Render Postgres free includes managed backups (not declared in repo); local sqlite not backed up"
+  },
+  "tests": {
+    "config": "none (no pytest.ini/setup.cfg/pyproject/conftest/.coveragerc)",
+    "runner": "PYTHONPTH=.  DATABASE_URL=sqlite:///...  pytest backend/app",
+    "files": 31,
+    "def_test_count": 1042,
+    "pytest_collection": {"collected": 623, "passed": 621, "failed": 2, "errors": 12, "duration_sec": 224.97, "env_note":"run with DATABASE_URL=sqlite to avoid psycopg2"},
+    "the_12_errors": "All NameError: DetectedBlock at backend/app/v2/segmenter/models.py:13 (pre-existing). Blocks: test_continuity, test_fase8, test_fase8_schema, test_newspaper_layout, test_phase9_parser_completion, test_pipeline_fase7, test_schema_completion, test_segmenter_{detectors,engine,models}, test_stitching, test_fix_produccion, fase8/stress_test.py.",
+    "the_2_failures": "test_phase12::TestParte1PDFsReales::* -> OCRProcessorError: PyMuPDF (fitz) not installed.",
+    "verified_green_subsets": ["test_extractor_deterministico.py (23 cases, V1 fianza, 2591bfb)","test_hyper_learning.py (14 cases, FASE14 engines, f9e5d5b)"],
+    "coverage": "not configured",
+    "regressions_from_last_commits": "none (621 stay green; the 12 errors/2 failures are pre-existing)"
+  },
+  "findings": [
+    {"id":"knowledge_empty","description":"knowledge.db essentially empty","evidence":"knowledge_rules=0,corrections=0,history=0,shadow=0; 27 aliases all PENDING synthetic (source='00000'->target='12345', finca, 0.3)"},
+    {"id":"segmenter_nameerror","description":"segmenter/models.py NameError blocks V2 + 12 tests","evidence":"models.py:13 blocks: list[DetectedBlock] (no future annotations; DetectedBlock defined line 117)"},
+    {"id":"pymupdf_missing","description":"PyMuPDF not installed; PDF processing fails","evidence":"test_phase12 2 failures; requirements.txt lists PyMuPDF>=1.24.0"},
+    {"id":"psycopg2_missing","description":"psycopg2-binary not installed; Postgres DB import fails locally","evidence":"ModuleNotFoundError: psycopg2 when DATABASE_URL=postgres"},
+    {"id":"vision_not_configured","description":"GOOGLE_VISION_API_KEY not in render.yaml","evidence":"render.yaml envVars = GEMINI_API_KEY, DATABASE_URL only"},
+    {"id":"claude_not_configured","description":"ANTHROPIC_API_KEY not in render.yaml","evidence":"same"},
+    {"id":"whatsapp_not_configured","description":"WHATSAPP_BRIDGE_URL/WHATSAPP_APROBADOR not in render.yaml","evidence":"same"},
+    {"id":"colombia_grid_unvalidated","description":"CO parser built but not validated on real PDFs","evidence":"README:43-45"},
+    {"id":"no_coverage","description":"No coverage configuration","evidence":"no conftest/pytest.ini/.coveragerc"},
+    {"id":"v1_correcciones_table_absent","description":"local remateup.db snapshot has no 'correcciones' table","evidence":"sqlite query: only documentos/auditoria/avisos/aprobaciones present"},
+    {"id":"hardcoded_api_base","description":"frontend hardcodes https://remateup-backend.onrender.com","evidence":"frontend/public/index.html:253"},
+    {"id":"physical_delete_admin","description":"/admin/limpiar_bd does physical DELETE of all data", "evidence":"main.py:82-115"}
+  ],
+  "problems_open": [
+    {"priority":1,"description":"segmenter/models.py:13 NameError","impact":"V2 pipeline + 12 tests blocked","risk":"high","solution":"add `from __future__ import annotations` line 1", "modules":["backend/app/v2/segmenter/models.py"]},
+    {"priority":2,"description":"PyMuPDF not installed","impact":"PDF/CO processing + 2 tests fail","risk":"high","solution":"pip install PyMuPDF","modules":["requirements.txt","backend/app/v2/ocr/processor.py"]},
+    {"priority":3,"description":"psycopg2 not installed locally","impact":"app import fails with Postgres URL (dev only)","risk":"medium","solution":"pip install psycopg2-binary","modules":["requirements.txt","backend/app/database.py"]},
+    {"priority":4,"description":"Google Vision not configured in prod","impact":"PA image OCR inactive in prod","risk":"high","solution":"add GOOGLE_VISION_API_KEY to render.yaml","modules":["render.yaml","backend/app/pipeline/ocr_vision.py"]},
+    {"priority":5,"description":"Claude not configured in prod","impact":"no real AI fallback","risk":"medium","solution":"add ANTHROPIC_API_KEY to render.yaml","modules":["config.py:11","render.yaml"]},
+    {"priority":6,"description":"knowledge.db empty","impact":"Knowledge Engine contributes nothing in prod","risk":"high","solution":"populate from real client corrections; approve rules","modules":["backend/app/v2/knowledge"]},
+    {"priority":7,"description":"WhatsApp bridge not configured in prod","impact":"approvals not sent to client in prod","risk":"high","solution":"configure WHATSAPP_BRIDGE_URL/APROBADOR + node bridge","modules":["config.py:29-30","routers/approvals.py","render.yaml"]},
+    {"priority":8,"description":"grid Colombiano not validated on real PDFs","impact":"potential low accuracy CO","risk":"medium-high","solution":"validate colombia_remate.py regex on real PDFs","modules":["backend/app/v2/parser/documents/colombia_remate.py"]},
+    {"priority":9,"description":"no test coverage/CI","impact":"regression risk","risk":"medium","solution":"add pytest-cov + GitHub Actions","modules":[]}
+  ],
+  "tech_debt": [
+    "frontend single 1057-line inline file (no separation of concerns/build) + hardcoded API_BASE",
+    "backend/app/main.py mixes business logic, admin, and debug routes; /admin/limpiar_bd does physical delete",
+    "render.yaml exposes only GEMINI_API_KEY + DATABASE_URL (missing ANTHROPIC/VISION/MOTOR_IA/WhatsApp/KNOWLEDGE_DB_PATH)",
+    "no CI/CD (.github/workflows absent)",
+    "no conftest.py/pytest.ini -> tests depend on shell DATABASE_URL=sqlite (fragile)",
+    "requirements.txt lacks pytest, pytest-cov, google-cloud-vision; pysycopg2 listed but not installed in venv",
+    "v2 duplica V1 responsibilities (maintain dual pipelines until V2 replaces V1)",
+    "colombia_remate.py regex (_GAP_PERCENT/_NO_WORD) fragile",
+    "hardcoded knowledge/validator version strings in runner.py:406-407",
+    "frontend/.firebase cache churn (LF/CRLF)",
+    "knowledge.db sqlite not version-controlled/migrated; dev alias seed mixed with runtime"
+  ],
+  "do_not_break": [
+    "V2 pipeline stage order (runner.py:4-6)", "V1 pipeline/routers/models/main (production)", "Knowledge sqlite schema (repository.py:18-99)", "Parser V2 (no Parser V3)", "Validator V2 output shape", "Certification output shape", "Exports Excel (descripcion/descripcion_completa)", "Dashboard API JSON contract", "Firebase/Render deploy configs", "Full V1+V2+Fase14 API contract", "frontend contract (cardAviso/editor fields)","PA fianza{10,20,25}/minimo{66.67,50,100} rules","CO fianza 40% fixed rule","fianza/minimo = base*x%/100 (business_rules.py:102-129)","soft-delete policy (/admin/aviso/{id} DELETE -> estado=eliminado)","IA never mutates Knowledge (integration.py:19-21)"
+  ],
+  "recommendations_for_gpt55": {
+    "must": ["Do NOT invent architecture; work inside existing modules","Do NOT create Parser/Validator/Knowledge/IA V3","Do NOT break V1 (production)","Keep 621 tests green; env must use pip install -r requirements.txt + DATABASE_URL=sqlite + PYTHONPATH=.","Prioritize Panama; do not break Colombia","Fix bugs before features (segmenter, PyMuPDF, psycopg2)","Maintain certification & V1 API contract"],
+    "nice_to_have": ["activate V2 over text","populate knowledge.db with real corrections","add CI/tests coverage","validate CO grid on real PDFs"]
+  },
+  "recommended_plan": {
+    "immediate": {"goal":"Unblock V2 locally + green tests","steps":["Fix segmenter/models.py:13 (from __future__ import annotations)","pip install -r requirements.txt fully (PyMuPDF, psycopg2-binary, pytest, pytest-cov)","Add conftest.py/pytest.ini with sqlite DATABASE_URL + coverage","Achieve 623/623 collectible passing"],"do_not_touch":["V1","fianza rules","IA providers"]},
+    "next": {"goal":"V2 runnable over text + live Knowledge","steps":["Run PipelineRunner over text of 3 V1 documents; compare vs V1","Seed knowledge.db from real corrections; approve rules via KnowledgeTrainer","Add V2 text-only integration tests"],"do_not_touch":["schema","V1"]},
+    "final": {"goal":"Hybrid V2 production + quality reports","steps":["Feature-flag V2 in prod (alongside V1)","Configure remaining Render env (ANTHROPIC/VISION/WhatsApp) per client decision","Populate learning/reports.py reports from production data","GitHub Actions pytest+coverage gate","Decide V2 go-live vs remain on V1"],"do_not_touch":["V1 until V2 parity proven"]}
+  },
+  "final_summary": {
+    "production_ready": "V1 yes; V2 no",
+    "gpt55_confidence": "high (modular, well-typed, small env-setup friction)",
+    "real_risks": ["12 tests + 2 failures are pre-existing (segmenter/PyMuPDF/psycopg2)","knowledge.db empty -> no learned behavior in prod","prod IA = Gemini-only; Claude/Vision/WhatsApp not configured","no CI/coverage"],
+    "opportunities": ["activate V2 over text (unblock segmenter + install deps)","prime knowledge.db with real client corrections","add CI + coverage","validate CO parser on real PDFs","automate production precision/duplicate reports (FASE12/14 already scaffolded)"]
+  },
+  "annex": {
+    "key_files": {
+      "handoff_md": "PROJECT_HANDOFF_GPT55.md",
+      "handoff_json": "PROJECT_HANDOFF_GPT55.json",
+      "fianza_fix_commit_2591bfb": ["backend/app/pipeline/extractor_deterministico.py","backend/app/routers/exports.py:86/138","backend/app/upload/platform_uploader.py:83","backend/app/v2/tests/test_extractor_deterministico.py"],
+      "fase14_commit_f9e5d5b": ["backend/app/learning/engine.py","backend/app/learning/reports.py","backend/app/learning/__init__.py","backend/app/routers/admin_ext.py","backend/app/main.py","backend/app/v2/tests/test_hyper_learning.py"],
+      "render": "render.yaml",
+      "firebase": "frontend/firebase.json",
+      "env_example": ".env.example",
+      "requirements": "backend/requirements.txt",
+      "config": "backend/app/config.py",
+      "v1_models": "backend/app/models.py",
+      "v2_runner": "backend/app/v2/pipeline/runner.py",
+      "ai_policy": "backend/app/v2/parser/ai/policy.py",
+      "ai_providers": "backend/app/v2/parser/ai/providers.py",
+      "ai_integration": "backend/app/v2/parser/ai/integration.py",
+      "knowledge_repo": "backend/app/v2/knowledge/repository.py",
+      "knowledge_trainer": "backend/app/v2/knowledge/trainer.py",
+      "segmenter_bug": "backend/app/v2/segmenter/models.py:13",
+      "frontend": "frontend/public/index.html"
+    },
+    "boot_commands": "cd backend && pip install -r requirements.txt && export DATABASE_URL=sqlite:///./test.db && PYTHONPATH=. python -m pytest backend/app -q"
+  }
+}

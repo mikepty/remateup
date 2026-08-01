@@ -54,7 +54,7 @@ def listar_avisos(
     db: Session = Depends(get_db)
 ):
     """Endpoint principal con filtros independientes y paginacion."""
-    query = db.query(Aviso)
+    query = db.query(Aviso).filter(Aviso.estado != "eliminado")
 
     # Filtros independientes
     if pais:
@@ -102,7 +102,7 @@ def historial(
     estado: str = Query(None, description="subido, auto_aprobado, etc."),
     db: Session = Depends(get_db)
 ):
-    query = db.query(Aviso)
+    query = db.query(Aviso).filter(Aviso.estado != "eliminado")
     if pais:
         query = query.filter(Aviso.pais == pais)
     if estado:
@@ -118,7 +118,7 @@ def todos_avisos(
     db: Session = Depends(get_db)
 ):
     """Devuelve TODOS los avisos sin limite."""
-    query = db.query(Aviso)
+    query = db.query(Aviso).filter(Aviso.estado != "eliminado")
     if pais:
         query = query.filter(Aviso.pais == pais)
     if estado:
@@ -139,19 +139,20 @@ def auditoria(limit: int = 200, db: Session = Depends(get_db)):
 @router.get("/metricas")
 def metricas(db: Session = Depends(get_db)):
     total_docs = db.query(func.count(Documento.id)).scalar()
-    total_avisos = db.query(func.count(Aviso.id)).scalar()
-    auto_aprobados = db.query(func.count(Aviso.id)).filter(Aviso.estado.in_(["auto_aprobado", "subido"])).scalar()
+    activos = Aviso.estado != "eliminado"
+    total_avisos = db.query(func.count(Aviso.id)).filter(activos).scalar()
+    auto_aprobados = db.query(func.count(Aviso.id)).filter(activos, Aviso.estado.in_(["auto_aprobado", "subido"])).scalar()
     esperando = db.query(func.count(Aviso.id)).filter(Aviso.estado == "esperando_aprobacion").scalar()
     duplicados = db.query(func.count(Aviso.id)).filter(
-        Aviso.tipo_validacion == "duplicado_sospechoso").scalar()
+        activos, Aviso.tipo_validacion == "duplicado_sospechoso").scalar()
     republicaciones = db.query(func.count(Aviso.id)).filter(
-        Aviso.tipo_validacion == "republicacion_legal").scalar()
+        activos, Aviso.tipo_validacion == "republicacion_legal").scalar()
     reemplazados = db.query(func.count(Aviso.id)).filter(
         Aviso.estado == "reemplazado_por_republicacion").scalar()
-    confianza_promedio = db.query(func.avg(Aviso.confianza_promedio)).scalar() or 0
+    confianza_promedio = db.query(func.avg(Aviso.confianza_promedio)).filter(activos).scalar() or 0
 
-    pa = db.query(func.count(Aviso.id)).filter(Aviso.pais == 1).scalar()
-    co = db.query(func.count(Aviso.id)).filter(Aviso.pais == 2).scalar()
+    pa = db.query(func.count(Aviso.id)).filter(activos, Aviso.pais == 1).scalar()
+    co = db.query(func.count(Aviso.id)).filter(activos, Aviso.pais == 2).scalar()
 
     return {
         "documentos_procesados": total_docs,

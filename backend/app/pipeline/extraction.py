@@ -172,7 +172,7 @@ Devuelve un array JSON. Cada aviso:
 pais: {"1" if pais == "PA" else "2"}, fecha: YYYY-MM-DD, hora: HH:MM
 expediente: número de expediente TAL CUAL aparece. NO lo abrevies.
 categoria: CASA/APARTAMENTO/TERRENO/VEHICULO/MISCELANEO
-descripcion: resumen corto, MÁXIMO 15 PALABRAS (cuéntalas): tipo de bien + nombre/ubicación. NUNCA copies aquí el detalle completo de linderos/medidas.
+descripcion: resumen de portada, MÁXIMO 30 PALABRAS (cuéntalas): tipo de bien + características principales + nombre/ubicación. NUNCA copies aquí el detalle completo de linderos/medidas.
 descripcion_completa: detalle COMPLETO del bien (aquí sí va todo el texto largo: linderos, medidas, gravámenes, etc.)
 base: número plano sin $ ni comas (ej: 150000.00)
 fianza_porcentaje: {"10/20/25" if pais == "PA" else "40"}
@@ -230,7 +230,7 @@ Montos:
 pais: {"1" if pais == "PA" else "2"}, fecha: YYYY-MM-DD, hora: HH:MM
 expediente: TAL CUAL impreso. NO abrevies.
 categoria: CASA/APARTAMENTO/TERRENO/VEHICULO/MISCELANEO
-descripcion: resumen corto, MÁXIMO 15 PALABRAS (cuéntalas): tipo de bien + nombre/ubicación. NUNCA copies aquí linderos/medidas completas.
+descripcion: resumen de portada, MÁXIMO 30 PALABRAS (cuéntalas): tipo de bien + características principales + nombre/ubicación. NUNCA copies aquí linderos/medidas completas.
 descripcion_completa: detalle COMPLETO del bien
 codigo_prensa: déjalo SIEMPRE null (se genera automáticamente a partir de periodico+fecha_prensa+pagina_prensa, no lo calcules tú)
 {REGLA_LIMITE_DOCUMENTO}
