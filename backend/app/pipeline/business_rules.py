@@ -21,7 +21,7 @@ from ..config import (
 
 # Campos que el sistema genera/deriva, no que se extraen tal cual del documento.
 # Se excluyen del cálculo de confianza promedio en confidence.py.
-CAMPOS_DERIVADOS = ["codigo", "codigo_ubicacion", "codigo_prensa"]
+CAMPOS_DERIVADOS = ["codigo", "codigo_ubicacion", "codigo_prensa", "prevista"]
 
 
 def _normalizar(texto) -> str:
@@ -249,6 +249,34 @@ def _resumir_descripcion_portada(datos: dict) -> None:
     datos["descripcion"] = recortado.rstrip(" ,.;:-")
 
 
+def _generar_prevista(datos: dict) -> str | None:
+    """Ubicación limpia para Google Maps del inmueble (approximada si el aviso
+    solo da la zona). Si el modelo ya la extrajo, se respeta. Si no, se arma a
+    partir de la descripción corta + provincia, que casi siempre contienen el
+    lote/corregimiento/distrito. Así el mapa SIEMPRE tiene algo que buscar."""
+    prevista = str(datos.get("prevista") or "").strip()
+    if prevista:
+        return prevista
+
+    partes = []
+    desc = str(datos.get("descripcion") or "").strip()
+    if desc and len(desc) <= 150:
+        partes.append(desc)
+    provincia = str(datos.get("provincia") or "").strip()
+    if provincia:
+        partes.append(provincia)
+    if not partes:
+        lugar = str(datos.get("lugar") or "").strip()
+        if lugar:
+            # 'lugar' casi siempre es el JUZGADO, no la ubicación del bien:
+            # solo se usa como último recurso y solo si menciona una zona.
+            if any(z in lugar.upper() for z in ("ARRAIJAN", "PANAMA", "COLON", "CHIRIQUI",
+                                                 "VERAGUAS", "HERRERA", "LOS SANTOS", "COCLE",
+                                                 "BOCAS", "DAVID", "LA CHORRERA")):
+                partes.append(lugar)
+    return ", ".join(partes) if partes else None
+
+
 def aplicar_reglas(datos: dict) -> dict:
     """Recibe el dict de datos extraídos y le agrega/corrige campos codificados."""
     datos = dict(datos)  # copia, no mutar el original
@@ -266,7 +294,11 @@ def aplicar_reglas(datos: dict) -> dict:
 
     # Si contiene "cuota parte" en la descripcion o categoria, es miscelaneo (5)
     desc_raw = _normalizar(datos.get("descripcion") or "")
-    if "CUOTA PARTE" in categoria_raw or "CUOTA PARTE" in desc_raw or "CUOTAS PARTES" in desc_raw:
+    desc_completa_raw = _normalizar(datos.get("descripcion_completa") or "")
+    proceso_raw = _normalizar(datos.get("proceso") or "")
+    if ("CUOTA PARTE" in categoria_raw or "CUOTA PARTE" in desc_raw
+            or "CUOTAS PARTES" in desc_raw or "CUOTAS PARTES" in desc_completa_raw
+            or "CUOTAS PARTES" in proceso_raw):
         datos["categoria_codigo"] = 5
         datos["categoria"] = "MISCELANEO"
     else:
@@ -284,6 +316,11 @@ def aplicar_reglas(datos: dict) -> dict:
     # Generar codigo_prensa si no fue extraído directamente
     if not datos.get("codigo_prensa"):
         datos["codigo_prensa"] = _generar_codigo_prensa(datos)
+
+    # Ubicación para Google Maps: respaldo determinista si el modelo no la dio
+    prevista = _generar_prevista(datos)
+    if prevista:
+        datos["prevista"] = prevista
 
     validacion = _calcular_y_validar_valores(datos)
     datos["fianza"] = validacion["fianza_calculada"]

@@ -19,6 +19,109 @@ def _sigla_periodico_de_archivo(nombre_archivo: str) -> str | None:
     return m.group(1) if m else None
 
 
+# Cabecera del periódico impresa en la hoja, ej:
+# "La Prensa Panamá, jueves 9 de julio de 2026" o "La Prensa, Panamá, 9 de julio de 2026".
+# El modelo a veces no la lee como tal (quedó a mitad del texto OCR): aquí se
+# detecta de forma determinista para completar periodico/fecha_prensa y poder
+# generar el codigo_prensa (regla del cliente: INICIAL+DDMESAAAA+PÁGINA).
+_RE_CABECERA_PERIODICO = re.compile(
+    r"(La Prensa|La Estrella|Metro Libre)\s*,?\s*Panam[áa]?\s*,?\s*"
+    r"(?:lunes|martes|mi[ée]rcoles|jueves|viernes|s[áa]bado|domingo)\s+"
+    r"(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|"
+    r"septiembre|octubre|noviembre|diciembre)\s+de\s+(\d{4})",
+    re.IGNORECASE,
+)
+_MESES_A_NUMERO = {
+    "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
+    "julio": 7, "agosto": 8, "septiembre": 9, "octubre": 10, "noviembre": 11,
+    "diciembre": 12,
+}
+
+
+def _cabecera_periodico_desde_ocr(texto_ocr: str) -> tuple[str, str] | None:
+    """Devuelve (periodico, fecha_prensa YYYY-MM-DD) si la cabecera del diario
+    está impresa en el texto OCR."""
+    if not texto_ocr:
+        return None
+    m = _RE_CABECERA_PERIODICO.search(texto_ocr)
+    if not m:
+        return None
+    dia, mes, anio = int(m.group(2)), _MESES_A_NUMERO[m.group(3).lower()], m.group(4)
+    return m.group(1), f"{anio}-{mes:02d}-{dia:02d}"
+
+
+def _pagina_prensa_desde_ocr(texto_ocr: str) -> str | None:
+    """Código de página impreso en la esquina superior de la hoja (ej. "6B").
+    Suele aparecer en las primeras líneas del texto OCR de la foto superior."""
+    if not texto_ocr:
+        return None
+    inicio = texto_ocr[:2000]
+    m = re.search(r"(?m)^\s*(\d{1,2}[A-Za-z]{1,2})\s*$", inicio)
+    return m.group(1).upper() if m else None
+
+
+def _ventana_aviso_ocr(texto_ocr: str, pos: int, antes: int = 2000, despues: int = 4000) -> str:
+    """Recorta el texto alrededor de un expediente hasta el encabezado del
+    SIGUIENTE aviso de remate, para que los patrones de monto no capten datos
+    del aviso vecino cuando varios avisos quedan pegados en el mismo texto."""
+    fin = min(len(texto_ocr), pos + despues)
+    prox = texto_ocr.find("AVISO DE REMATE", pos + 1)
+    if prox != -1:
+        fin = min(fin, prox)
+    return texto_ocr[max(0, pos - antes):fin]
+
+
+def _buscar_base_en_ocr(datos: dict, texto_ocr: str) -> float | None:
+    """Red de seguridad: si la IA no asoció el monto (base) del aviso, se busca
+    determinísticamente en el texto OCR cerca del expediente. Solo patrones
+    específicos del aviso ("la base del remate es decir la suma de B/.X" o
+    "CUANTIA DEL EMBARGO ... (B/.X)") son confiables cuando hay otro aviso
+    pegado; el patrón genérico B/.X se usa solo si no hay otro encabezado
+    de remate entre el expediente y el monto."""
+    base = datos.get("base")
+    if base not in (None, "", "null"):
+        return None
+    expediente = str(datos.get("expediente") or "").strip()
+    if not expediente or not texto_ocr:
+        return None
+
+    pos = texto_ocr.find(expediente)
+    if pos == -1:
+        # Probar solo con dígitos (el OCR intercala guiones/espacios)
+        solo_digitos = re.sub(r"\D", "", expediente)
+        if len(solo_digitos) >= 5:
+            pos = texto_ocr.find(solo_digitos)
+        if pos == -1:
+            return None
+    ventana = _ventana_aviso_ocr(texto_ocr, pos)
+
+    def _monto(grupo: str) -> float | None:
+        """Convierte el grupo capturado a float, tolerando el punto final de
+        frase que el patrón [\\d.,]+ suele capturar de más (\"5,800.00.\")."""
+        s = grupo.replace(",", "").rstrip(".")
+        try:
+            return float(s)
+        except ValueError:
+            return None
+
+    m = re.search(r"la base del remate\s*,?\s*es decir\s+la\s+suma\s+de\s+"
+                  r"[B]\s*/\s*\.\s*([\d.,]+)", ventana, re.IGNORECASE)
+    if not m:
+        m = re.search(r"CUANTIA\s+DEL\s+EMBARGO\s*:.*?\(\s*[B]\s*/\s*\.\s*([\d.,]+)\s*\)",
+                      ventana, re.IGNORECASE)
+    if m:
+        return _monto(m.group(1))
+    # Patrón genérico: solo si entre el expediente y el monto NO hay otro aviso
+    resto = texto_ocr[pos:pos + 4000]
+    if "AVISO DE REMATE" in resto.upper().replace("AVISO DE REMATE", "", 1):
+        return None
+    m = re.search(r"[B]\s*/\s*\.\s*([\d.,]{5,})", ventana)
+    if m:
+        valor = _monto(m.group(1))
+        return valor if valor and 500.0 < valor < 1_000_000_000 else None
+    return None
+
+
 def procesar_documento(db: Session, documento: Documento) -> list[Aviso]:
     audit.registrar(db, "orchestrator", "inicio_procesamiento",
                      f"Procesando {documento.nombre_archivo}", documento_id=documento.id)
@@ -49,12 +152,45 @@ def procesar_documento(db: Session, documento: Documento) -> list[Aviso]:
 
     avisos_creados = []
     sigla_periodico = _sigla_periodico_de_archivo(documento.nombre_archivo)
+    texto_ocr = salida_ocr.get("texto") or ""
 
     for idx, item in enumerate(resultados):
         try:
             item["datos"]["_sigla_periodico"] = sigla_periodico
+
+            # Respaldos deterministas desde el texto OCR (la IA a veces no
+            # asocia la cabecera del diario ni el monto si quedaron lejos):
+            if texto_ocr:
+                if not item["datos"].get("periodico") and not item["datos"].get("fecha_prensa"):
+                    cabecera = _cabecera_periodico_desde_ocr(texto_ocr)
+                    if cabecera:
+                        item["datos"]["periodico"], item["datos"]["fecha_prensa"] = cabecera
+                if not item["datos"].get("pagina_prensa"):
+                    pagina = _pagina_prensa_desde_ocr(texto_ocr)
+                    if pagina:
+                        item["datos"]["pagina_prensa"] = pagina
+                base_ocr = _buscar_base_en_ocr(item["datos"], texto_ocr)
+                if base_ocr:
+                    item["datos"]["base"] = str(base_ocr)
+
             datos = business_rules.aplicar_reglas(item["datos"])
             confianza_campos = item["confianza"]
+
+            # Filtro de falsos positivos: un AVISO DE REMATE real SIEMPRE tiene
+            # base/avalúo. Los avisos sin base son menciones internas del texto
+            # ("DERECHO DE PROPIEDAD DE UN AVISO DE REMATE EXP. No. X"), avisos
+            # de páginas vecinas que asoman cortados en la foto, o fragmentos
+            # de edictos/negocios mal clasificados. No se crean (el cliente los
+            # rechazaba uno a uno en el panel).
+            base_aviso = datos.get("base")
+            if base_aviso in (None, "", "null"):
+                audit.registrar(
+                    db, "orchestrator", "descartado_sin_base",
+                    f"Item {idx}: exp={datos.get('expediente')!r} sin base -> "
+                    f"descartado (posible falso positivo o aviso cortado)",
+                    documento_id=documento.id)
+                db.commit()
+                continue
             audit.registrar(db, "business_rules", "reglas_aplicadas",
                              json.dumps(datos, ensure_ascii=False, default=str), documento_id=documento.id)
 

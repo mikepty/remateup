@@ -33,10 +33,11 @@ GUIA_CAMPOS_AMBIGUOS = """
 - email_observaciones: SOLO un correo electrónico (formato usuario@dominio), y SOLO si aparece impreso en el aviso. Si no hay ningún correo electrónico en el texto del aviso, este campo debe ser null. NUNCA pongas aquí descripciones, montos, nombres, ni texto de otro aviso/edicto/documento.
 - descripcion vs descripcion_completa: ver instrucciones más abajo.
 - periodico / fecha_prensa / pagina_prensa: son datos DEL PERIÓDICO (la publicación), no del remate. Se leen del encabezado o pie de página de la hoja (ej. "La Prensa, Panamá, jueves 9 de julio de 2026 ... 7B"), NO del cuerpo del aviso:
-  - periodico: nombre tal cual aparece impreso (ej. "La Prensa", "La Estrella", "Metro Libre"). Si no es visible en esta imagen/texto, null.
-  - fecha_prensa: fecha de la EDICIÓN del periódico (formato YYYY-MM-DD). Es DISTINTA de "fecha" (que es la fecha del remate). Si no es visible, null.
-  - pagina_prensa: código de página impreso en la esquina/pie de la hoja, tal cual (ej. "7B", "1C", "23"). Si no es visible, null.
-  Todos los avisos que vengan de LA MISMA hoja/imagen comparten el mismo periodico/fecha_prensa/pagina_prensa.
+ - periodico: nombre tal cual aparece impreso (ej. "La Prensa", "La Estrella", "Metro Libre"). Si no es visible en esta imagen/texto, null.
+ - fecha_prensa: fecha de la EDICIÓN del periódico (formato YYYY-MM-DD). Es DISTINTA de "fecha" (que es la fecha del remate). Si no es visible, null.
+ - pagina_prensa: código de página impreso en la esquina/pie de la hoja, tal cual (ej. "7B", "1C", "23"). Si no es visible, null.
+   Todos los avisos que vengan de LA MISMA hoja/imagen comparten el mismo periodico/fecha_prensa/pagina_prensa.
+ - prevista: la UBICACIÓN LIMPIA del inmueble para pegar en Google Maps (NO es una fecha ni la fecha del remate): dirección/urbanización + corregimiento + distrito + provincia, separados por coma (ej. "LOTE 156, Corr: Juan Demóstenes Arosemena, Dist: Arraiján, Prov: Panamá" o "Casa lote 212, Arraiján, Panamá"). Debe servir para localizar el bien en Google Maps. Si el aviso no da NINGÚN dato de ubicación del bien, deja este campo en null.
 """
 
 # Marcador que se inserta en el texto OCR antes de CUALQUIER encabezado de

@@ -117,7 +117,14 @@ def _detectar_columnas(palabras: list[dict], ancho: int) -> list[tuple[int, int]
     """Detecta los límites [x_ini, x_fin) de cada columna con un perfil de
     proyección horizontal: los canalones del periódico son franjas verticales
     casi sin palabras. Ignora palabras muy grandes (titulares que cruzan
-    columnas) para que no tapen los canalones."""
+    columnas) para que no tapen los canalones.
+
+    CRÍTICO: el umbral es ESTRICTO. Un canalón solo califica si es una franja
+    VACÍA (cobertura < 1% del pico) de al menos 2% del ancho de la página.
+    Las sangrías/espacios de párrafos alineados crean franjas débiles de
+    1-3 bins: si se toman como canalones se generan columnas fantasma y el
+    reordenado por palabras entremezcla los avisos de páginas de ancho
+    completo (texto justificado sin columnas reales)."""
     if not palabras or ancho <= 0:
         return []
     alturas = sorted(p["y1"] - p["y0"] for p in palabras)
@@ -133,16 +140,26 @@ def _detectar_columnas(palabras: list[dict], ancho: int) -> list[tuple[int, int]
     pico = max(cobertura)
     if pico == 0:
         return []
-    umbral = max(2, pico * 0.03)
+    umbral = max(1, pico * 0.01)
+    ancho_min_canalon = max(3, int(ancho * 0.02 / BIN))
 
     columnas = []
     en_col, ini = False, 0
+    canalon_ini = None
     for i, c in enumerate(cobertura):
-        if c >= umbral and not en_col:
-            en_col, ini = True, i
-        elif c < umbral and en_col:
-            en_col = False
-            columnas.append((ini * BIN, i * BIN))
+        if c >= umbral:
+            if not en_col:
+                en_col, ini = True, i
+            canalon_ini = None
+        elif en_col:
+            # Dentro de un posible canalón: se confirma solo si llega a la
+            # longitud mínima. Un canalón corto (sangría de párrafo alineada)
+            # NO corta la columna: se ignora y la columna continúa.
+            if canalon_ini is None:
+                canalon_ini = i
+            if i - canalon_ini >= ancho_min_canalon:
+                columnas.append((ini * BIN, canalon_ini * BIN))
+                en_col = False
     if en_col:
         columnas.append((ini * BIN, nbins * BIN))
     # Descartar franjas demasiado angostas (ruido/filetes)
@@ -151,11 +168,13 @@ def _detectar_columnas(palabras: list[dict], ancho: int) -> list[tuple[int, int]
 
 
 def _reconstruir_por_palabras(anotacion: dict) -> str:
-    """Reordena el texto PALABRA por PALABRA: asigna cada palabra a su columna
-    (detectada por perfil de proyección), agrupa en líneas dentro de la columna
-    y lee columna por columna, de arriba a abajo. Arregla las páginas donde
-    Vision entrelazó columnas dentro de un mismo bloque (lo que el reordenado
-    por bloques no puede corregir). Devuelve "" si no detecta 2+ columnas."""
+    """Reordena el texto PALABRA por PALABRA leyéndolo columna por columna
+    (izquierda->derecha, arriba->abajo dentro de cada columna), usando las
+    columnas REALES detectadas por _detectar_columnas (canalones estrictos).
+
+    SOLO debe llamarse cuando hay 2+ columnas reales (ver _ocr_imagen_bytes):
+    con columnas fantasma el texto de una página de ancho completo se
+    entremezcla línea a línea y los avisos quedan partidos."""
     palabras, ancho = _extraer_palabras(anotacion)
     columnas = _detectar_columnas(palabras, ancho)
     if len(columnas) < 2:
@@ -232,24 +251,29 @@ def _ocr_imagen_bytes(data: bytes) -> str:
         raise RuntimeError(f"Vision API error: {r0['error'].get('message', 'desconocido')}")
     anotacion = r0.get("fullTextAnnotation", {})
     plano = anotacion.get("text", "") or ""
-    # Intentar reconstrucción por palabras primero (más precisa: corrige
-    # entrelazado de columnas dentro de un mismo bloque de Vision).
+    # Reconstrucción por palabras SOLO cuando hay columnas reales (canalones
+    # estrictamente vacíos detectados por proyección). En páginas de ancho
+    # completo (avisos justificados sin columnas) el detector NO debe hallar
+    # columnas: reordenar ahí con columnas fantasma entremezcla los avisos
+    # línea a línea y descuaja montos y expedientes.
     try:
-        por_palabras = _reconstruir_por_palabras(anotacion)
+        palabras_check, ancho_check = _extraer_palabras(anotacion)
+        hay_columnas = len(_detectar_columnas(palabras_check, ancho_check)) >= 2
     except Exception as e:
-        print(f"[ocr_vision] Reconstruccion por palabras fallo: {e}")
-        por_palabras = ""
-    if por_palabras:
-        return por_palabras
-    # Fallback: reconstrucción por bloques (funciona bien en páginas donde
-    # Vision no entrelazó columnas dentro de un bloque).
-    try:
-        por_columnas = _reconstruir_por_columnas(anotacion)
-    except Exception as e:
-        print(f"[ocr_vision] Reconstruccion por columnas fallo, uso texto plano: {e}")
-        por_columnas = ""
-    if por_columnas and len(por_columnas) >= 0.85 * len(plano):
-        return por_columnas
+        print(f"[ocr_vision] Deteccion de columnas fallo: {e}")
+        hay_columnas = False
+    if hay_columnas:
+        try:
+            por_palabras = _reconstruir_por_palabras(anotacion)
+        except Exception as e:
+            print(f"[ocr_vision] Reconstruccion por palabras fallo: {e}")
+            por_palabras = ""
+        if por_palabras:
+            return por_palabras
+    # Sin columnas reales: el orden de lectura de Vision (texto plano) es el
+    # correcto para páginas de ancho completo. NO se intenta reordenar por
+    # bloques: su detección laxa vuelve a crear columnas fantasma y
+    # entremezcla los avisos.
     return plano
 
 
