@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text, inspect
 from .database import Base, engine, get_db
 from .routers import documents, dashboard, approvals, exports
+from .routers.admin_ext import router as admin_ext_router
 from .models import Aviso, Documento, Auditoria, Aprobacion, Correccion
 
 Base.metadata.create_all(bind=engine)
@@ -70,6 +71,7 @@ app.include_router(documents.router)
 app.include_router(dashboard.router)
 app.include_router(approvals.router)
 app.include_router(exports.router)
+app.include_router(admin_ext_router)
 
 
 @app.get("/")
