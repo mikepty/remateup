@@ -223,6 +223,108 @@ def _reconstruir_por_palabras(anotacion: dict) -> str:
     return "".join(partes).strip()
 
 
+def _reconstruir_lienzo_vertical(anotaciones: list[dict]) -> str:
+    """Reconstruye el texto de 2 imágenes (superior + inferior) como un lienzo
+    vertical único donde las columnas continúan de la primera a la segunda.
+    
+    Estrategia:
+    1. Extraer palabras con coordenadas de ambas imágenes
+    2. Detectar columnas en la imagen superior
+    3. Offset vertical: palabras de img2.y += altura_img1
+    4. Reordenar todas las palabras por columna, luego por y
+    5. Reconstruir texto respetando el flujo columnar vertical
+    """
+    if len(anotaciones) != 2:
+        # Fallback: si no son exactamente 2, procesar independiente
+        return "\n\n".join(_reconstruir_por_columnas(a) for a in anotaciones if a)
+    
+    anotacion_superior = anotaciones[0]
+    anotacion_inferior = anotaciones[1]
+    
+    # Extraer palabras de ambas imágenes
+    palabras_sup, ancho_sup = _extraer_palabras(anotacion_superior)
+    palabras_inf, ancho_inf = _extraer_palabras(anotacion_inferior)
+    
+    if not palabras_sup and not palabras_inf:
+        return ""
+    
+    # Calcular altura de imagen superior para offset vertical
+    if palabras_sup:
+        altura_superior = max(p["y1"] for p in palabras_sup)
+    else:
+        altura_superior = 0
+    
+    # Offset vertical: mover palabras de imagen inferior hacia abajo
+    for p in palabras_inf:
+        p["y0"] += altura_superior
+        p["y1"] += altura_superior
+    
+    # Combinar todas las palabras
+    todas_palabras = palabras_sup + palabras_inf
+    ancho_total = max(ancho_sup, ancho_inf)
+    
+    if not todas_palabras:
+        return ""
+    
+    # Detectar columnas en el conjunto completo
+    columnas = _detectar_columnas(todas_palabras, ancho_total)
+    
+    if not columnas:
+        # Fallback: sin columnas detectables, ordenar por y globalmente
+        todas_palabras.sort(key=lambda p: (p["y0"], p["x0"]))
+        partes = []
+        for p in todas_palabras:
+            partes.append(p["t"])
+            partes.append("" if p["brk"] == "HYPHEN" else " ")
+        return "".join(partes).strip()
+    
+    print(f"[ocr_vision] Lienzo vertical: {len(columnas)} columnas detectadas, "
+          f"{len(palabras_sup)} palabras sup + {len(palabras_inf)} palabras inf")
+    
+    # Asignar cada palabra a su columna
+    def col_de(p):
+        cx = (p["x0"] + p["x1"]) / 2
+        return min(range(len(columnas)),
+                   key=lambda i: abs(cx - (columnas[i][0] + columnas[i][1]) / 2))
+    
+    alturas = sorted(p["y1"] - p["y0"] for p in todas_palabras)
+    h_med = alturas[len(alturas) // 2] or 10
+    
+    grupos = [[] for _ in columnas]
+    for p in todas_palabras:
+        grupos[col_de(p)].append(p)
+    
+    partes = []
+    for idx_col, grupo in enumerate(grupos):
+        if not grupo:
+            continue
+        # Ordenar por y dentro de la columna (vertical)
+        grupo.sort(key=lambda p: (p["y0"], p["x0"]))
+        
+        # Agrupar en líneas
+        lineas, actual, y_linea = [], [], None
+        for p in grupo:
+            if actual and p["y0"] - y_linea > 0.6 * h_med:
+                lineas.append(actual)
+                actual = []
+            if not actual:
+                y_linea = p["y0"]
+            actual.append(p)
+        if actual:
+            lineas.append(actual)
+        
+        for linea in lineas:
+            linea.sort(key=lambda p: p["x0"])
+            for p in linea:
+                partes.append(p["t"])
+                partes.append("" if p["brk"] == "HYPHEN" else " ")
+            if partes and partes[-1] == " ":
+                partes[-1] = "\n"
+        partes.append("\n\n")  # Separador entre columnas
+    
+    return "".join(partes).strip()
+
+
 def _ocr_imagen_bytes_raw(data: bytes) -> dict:
     """Envía una imagen (bytes) a Vision y devuelve la anotación RAW completa."""
     if not GOOGLE_VISION_API_KEY:
