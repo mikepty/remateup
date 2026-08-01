@@ -223,8 +223,8 @@ def _reconstruir_por_palabras(anotacion: dict) -> str:
     return "".join(partes).strip()
 
 
-def _ocr_imagen_bytes(data: bytes) -> str:
-    """Envía una imagen (bytes) a Vision y devuelve el texto detectado."""
+def _ocr_imagen_bytes_raw(data: bytes) -> dict:
+    """Envía una imagen (bytes) a Vision y devuelve la anotación RAW completa."""
     if not GOOGLE_VISION_API_KEY:
         raise RuntimeError("GOOGLE_VISION_API_KEY no configurada")
 
@@ -245,11 +245,16 @@ def _ocr_imagen_bytes(data: bytes) -> str:
     data_json = resp.json()
     respuestas = data_json.get("responses", [{}])
     if not respuestas:
-        return ""
+        return {}
     r0 = respuestas[0]
     if "error" in r0:
         raise RuntimeError(f"Vision API error: {r0['error'].get('message', 'desconocido')}")
-    anotacion = r0.get("fullTextAnnotation", {})
+    return r0.get("fullTextAnnotation", {})
+
+
+def _ocr_imagen_bytes(data: bytes) -> str:
+    """Envía una imagen (bytes) a Vision y devuelve el texto detectado."""
+    anotacion = _ocr_imagen_bytes_raw(data)
     plano = anotacion.get("text", "") or ""
     # Reconstrucción por palabras SOLO cuando hay columnas reales (canalones
     # estrictamente vacíos detectados por proyección). En páginas de ancho
