@@ -370,16 +370,32 @@ def aplicar_reglas(datos: dict) -> dict:
     datos["fianza"] = validacion["fianza_calculada"]
     datos["minimo"] = validacion["minimo_calculado"]
     
-    # Forzar cálculo si falta pero hay base y porcentaje (backup)
+    # Forzar cálculo con valores por defecto si falta pero hay base (backup agresivo)
     base_num = _a_numero(datos.get("base"))
-    if not datos.get("minimo") and base_num:
-        minimo_pct = _a_numero(datos.get("minimo_porcentaje"))
-        if minimo_pct:
-            datos["minimo"] = round(base_num * minimo_pct / 100, 2)
-    if not datos.get("fianza") and base_num:
-        fianza_pct = _a_numero(datos.get("fianza_porcentaje"))
-        if fianza_pct:
-            datos["fianza"] = round(base_num * fianza_pct / 100, 2)
+    if base_num and base_num > 500:  # Base válida detectada
+        # Minimo: si falta, usar porcentaje si existe, sino asumir 66.67% (2/3 es el más común PA)
+        if not datos.get("minimo"):
+            minimo_pct = _a_numero(datos.get("minimo_porcentaje"))
+            if not minimo_pct and pais == 1:
+                minimo_pct = 66.67  # Panamá: 2/3 es el más común
+                datos["minimo_porcentaje"] = minimo_pct
+            elif not minimo_pct and pais == 2:
+                minimo_pct = 70.0  # Colombia: 70% es el más común
+                datos["minimo_porcentaje"] = minimo_pct
+            if minimo_pct:
+                datos["minimo"] = round(base_num * minimo_pct / 100, 2)
+        
+        # Fianza: si falta, usar porcentaje si existe, sino asumir 10% (el más común PA) o 40% (CO fijo)
+        if not datos.get("fianza"):
+            fianza_pct = _a_numero(datos.get("fianza_porcentaje"))
+            if not fianza_pct and pais == 1:
+                fianza_pct = 10.0  # Panamá: 10% es el más común
+                datos["fianza_porcentaje"] = fianza_pct
+            elif not fianza_pct and pais == 2:
+                fianza_pct = 40.0  # Colombia: 40% fijo
+                datos["fianza_porcentaje"] = fianza_pct
+            if fianza_pct:
+                datos["fianza"] = round(base_num * fianza_pct / 100, 2)
     
     # Si se asumió el 40% de Colombia por regla (no vino del OCR), se refleja
     # aquí para que "campos_faltantes" no lo marque como ausente -- pero queda
