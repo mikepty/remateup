@@ -409,17 +409,33 @@ def ocr_multiples_imagenes(rutas: list[str]) -> str:
     página vertical), las reconstruye como un lienzo vertical único donde las
     columnas continúan de la imagen superior a la inferior.
     
+    Auto-detección: ordena por posición vertical inferida desde metadatos.
+    
     Si es 1 imagen o 3+, las procesa independientemente y concatena."""
     if len(rutas) == 2:
         # Caso especial: 2 imágenes = mitades superior/inferior de UNA página
         # Obtener anotaciones RAW de Vision para reconstruir el lienzo completo
         anotaciones = []
+        alturas = []
         for i, ruta in enumerate(rutas):
             data = pathlib.Path(ruta).read_bytes()
             anotacion = _ocr_imagen_bytes_raw(data)
             anotaciones.append(anotacion)
-            print(f"[ocr_vision] Imagen {i+1} ({ruta}): anotación obtenida")
+            # Obtener altura de imagen para ordenar (la superior suele ser más alta en píxeles)
+            altura = 0
+            for page in anotacion.get("pages", []):
+                altura = max(altura, page.get("height", 0) or 0)
+            alturas.append(altura)
+            print(f"[ocr_vision] Imagen {i+1} ({ruta}): anotación obtenida, altura={altura}px")
             del data  # Liberar memoria de imagen
+        
+        # Auto-ordenar: si las alturas difieren mucho, la más alta probablemente es superior
+        # (fotos de WhatsApp: superior captura más encabezado, inferior solo el final)
+        if abs(alturas[0] - alturas[1]) > 200:
+            if alturas[1] > alturas[0]:
+                print(f"[ocr_vision] Auto-ordenando: imagen 2 parece ser superior (altura {alturas[1]} > {alturas[0]})")
+                anotaciones = [anotaciones[1], anotaciones[0]]
+                rutas = [rutas[1], rutas[0]]
         
         # Reconstruir como lienzo vertical: columnas de img1 continúan en img2
         texto = _reconstruir_lienzo_vertical(anotaciones)
