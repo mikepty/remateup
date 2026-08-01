@@ -236,7 +236,8 @@ def _reconstruir_lienzo_vertical(anotaciones: list[dict]) -> str:
     """
     if len(anotaciones) != 2:
         # Fallback: si no son exactamente 2, procesar independiente
-        return "\n\n".join(_reconstruir_por_columnas(a) for a in anotaciones if a)
+        resultado = "\n\n".join(_reconstruir_por_columnas(a) for a in anotaciones if a)
+        return resultado
     
     anotacion_superior = anotaciones[0]
     anotacion_inferior = anotaciones[1]
@@ -244,6 +245,9 @@ def _reconstruir_lienzo_vertical(anotaciones: list[dict]) -> str:
     # Extraer palabras de ambas imágenes
     palabras_sup, ancho_sup = _extraer_palabras(anotacion_superior)
     palabras_inf, ancho_inf = _extraer_palabras(anotacion_inferior)
+    
+    # Liberar anotaciones originales
+    del anotacion_superior, anotacion_inferior
     
     if not palabras_sup and not palabras_inf:
         return ""
@@ -261,6 +265,8 @@ def _reconstruir_lienzo_vertical(anotaciones: list[dict]) -> str:
     
     # Combinar todas las palabras
     todas_palabras = palabras_sup + palabras_inf
+    del palabras_sup, palabras_inf  # Liberar listas originales
+    
     ancho_total = max(ancho_sup, ancho_inf)
     
     if not todas_palabras:
@@ -276,10 +282,12 @@ def _reconstruir_lienzo_vertical(anotaciones: list[dict]) -> str:
         for p in todas_palabras:
             partes.append(p["t"])
             partes.append("" if p["brk"] == "HYPHEN" else " ")
-        return "".join(partes).strip()
+        resultado = "".join(partes).strip()
+        del todas_palabras, partes
+        return resultado
     
     print(f"[ocr_vision] Lienzo vertical: {len(columnas)} columnas detectadas, "
-          f"{len(palabras_sup)} palabras sup + {len(palabras_inf)} palabras inf")
+          f"{len(todas_palabras)} palabras totales")
     
     # Asignar cada palabra a su columna
     def col_de(p):
@@ -293,6 +301,8 @@ def _reconstruir_lienzo_vertical(anotaciones: list[dict]) -> str:
     grupos = [[] for _ in columnas]
     for p in todas_palabras:
         grupos[col_de(p)].append(p)
+    
+    del todas_palabras  # Liberar después de agrupar
     
     partes = []
     for idx_col, grupo in enumerate(grupos):
@@ -322,7 +332,9 @@ def _reconstruir_lienzo_vertical(anotaciones: list[dict]) -> str:
                 partes[-1] = "\n"
         partes.append("\n\n")  # Separador entre columnas
     
-    return "".join(partes).strip()
+    resultado = "".join(partes).strip()
+    del grupos, partes, lineas
+    return resultado
 
 
 def _ocr_imagen_bytes_raw(data: bytes) -> dict:
@@ -407,9 +419,11 @@ def ocr_multiples_imagenes(rutas: list[str]) -> str:
             anotacion = _ocr_imagen_bytes_raw(data)
             anotaciones.append(anotacion)
             print(f"[ocr_vision] Imagen {i+1} ({ruta}): anotación obtenida")
+            del data  # Liberar memoria de imagen
         
         # Reconstruir como lienzo vertical: columnas de img1 continúan en img2
         texto = _reconstruir_lienzo_vertical(anotaciones)
+        del anotaciones  # Liberar anotaciones grandes
         lineas = texto.split('\n')[:5]
         print(f"[ocr_vision] Lienzo vertical reconstruido: {len(texto)} caracteres, primeras lineas: {' | '.join(lineas[:3])}")
         return texto
