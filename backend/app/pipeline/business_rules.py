@@ -369,6 +369,18 @@ def aplicar_reglas(datos: dict) -> dict:
     validacion = _calcular_y_validar_valores(datos)
     datos["fianza"] = validacion["fianza_calculada"]
     datos["minimo"] = validacion["minimo_calculado"]
+    
+    # Forzar cálculo si falta pero hay base y porcentaje (backup)
+    base_num = _a_numero(datos.get("base"))
+    if not datos.get("minimo") and base_num:
+        minimo_pct = _a_numero(datos.get("minimo_porcentaje"))
+        if minimo_pct:
+            datos["minimo"] = round(base_num * minimo_pct / 100, 2)
+    if not datos.get("fianza") and base_num:
+        fianza_pct = _a_numero(datos.get("fianza_porcentaje"))
+        if fianza_pct:
+            datos["fianza"] = round(base_num * fianza_pct / 100, 2)
+    
     # Si se asumió el 40% de Colombia por regla (no vino del OCR), se refleja
     # aquí para que "campos_faltantes" no lo marque como ausente -- pero queda
     # visible en "_fianza_asumida_por_regla" para que se sepa que no vino leído.
