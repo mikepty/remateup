@@ -58,6 +58,24 @@ class TestPanamaRealPatterns(unittest.TestCase):
         self.assertTrue(results["precio_base"].is_found)
         self.assertIn("200,000", results["precio_base"].value)
 
+    def test_avaluo_comercial_con_simbolo_dolar(self):
+        # Etiqueta real de los avisos del cliente (no "BASE"): confirmado con
+        # el reporte de gap contra las muestras reales (6/6 casos perdidos
+        # usaban esta etiqueta con "$", no "B/.").
+        text = ("AVISO DE REMATE\nJUZGADO: JUZGADO MUNICIPAL DE PANAMA\n"
+                "EXPEDIENTE N° 1029202000030580\nAVALÚO COMERCIAL: $100.000.00")
+        ctx = ParserContext(country="PA", document_type="REMATE", text=text)
+        results = self.parser.parse(ctx)
+        self.assertTrue(results["precio_base"].is_found)
+        self.assertIn("100.000.00", results["precio_base"].value)
+
+    def test_avaluo_comercial_sin_tilde(self):
+        text = "AVISO DE REMATE\nFINCA 90123\nAVALUO COMERCIAL: $5.000.00"
+        ctx = ParserContext(country="PA", document_type="REMATE", text=text)
+        results = self.parser.parse(ctx)
+        self.assertTrue(results["precio_base"].is_found)
+        self.assertIn("5.000.00", results["precio_base"].value)
+
     def test_base_without_b_slash(self):
         text = "AVISO DE REMATE\nFINCA 55555\nBASE: 30,000.00"
         ctx = ParserContext(country="PA", document_type="REMATE", text=text)

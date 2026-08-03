@@ -24,9 +24,11 @@ from backend.app.v2.knowledge.rules import RuleEngine
 from backend.app.v2.knowledge.repository import KnowledgeRepository
 from backend.app.v2.knowledge.integration import KnowledgeAwareWrapper
 from backend.app.v2.validator.orchestrator import ValidationOrchestrator
+from backend.app.v2.validator.models import Decision
 from backend.app.v2.normalization.normalizer import FieldNormalizer
 from backend.app.v2.confidence.final import FinalConfidenceCalculator
 from backend.app.v2.certification.certifier import Certifier, CertDecision
+from backend.app.v2.description.builder import build_descripcion_completa, build_descripcion_portada
 
 
 PIPELINE_VERSION = "7.0.0"
@@ -41,6 +43,21 @@ def _ocr_page_to_text(page) -> str:
     return txt
 
 
+def _aviso_text(aviso) -> str:
+    """Texto real de un aviso, sea DetectedAviso (expone full_text) o
+    CompleteAviso (expone text, ver segmenter/models.py). Antes se hacía
+    aviso.full_text if hasattr(...) else str(aviso): como CompleteAviso no
+    tiene full_text, TODO aviso que pasó por el motor de continuidad (es
+    decir, todos en Panamá) caía en str(aviso) y le pasaba el repr del
+    dataclass entero -- no el texto -- al parser, knowledge y validator."""
+    if hasattr(aviso, "full_text"):
+        return aviso.full_text
+    txt = getattr(aviso, "text", None)
+    if txt is not None:
+        return txt
+    return str(aviso)
+
+
 class StageResult:
     def __init__(self, name: str):
         self.name = name
@@ -50,6 +67,7 @@ class StageResult:
         self.errors: list[str] = []
         self.metrics: dict = {}
         self.output: Any = None
+        self.per_aviso_fields: list = []
 
     def to_dict(self) -> dict:
         return {
@@ -179,6 +197,20 @@ class PipelineRunner:
                     s.warnings.append(f"Stitching failed: {e}")
                     stitched_pages = None
 
+            # Problema #7 (OCR parcial): si a alguna página le falta la mitad
+            # superior o inferior (imagen impar, sin pareja), no se debe
+            # tratar como una página completa. Se marca como warning aquí y
+            # se fuerza REQUIRES_REVIEW/INCOMPLETE más adelante (etapa
+            # validator) en vez de dejar que se certifique como si nada.
+            partial_pages = [sp for sp in (stitched_pages or []) if getattr(sp, "is_partial", False)]
+            if partial_pages:
+                for sp in partial_pages:
+                    s.warnings.append(
+                        f"Página {sp.page_number} incompleta: falta la mitad "
+                        f"{sp.missing_side} (imagen sin pareja). Se marca para revisión."
+                    )
+                result["metrics"]["ocr_parcial_detectado"] = True
+
             avisos_list = []
             if stitched_pages:
                 for sp in stitched_pages:
@@ -240,23 +272,57 @@ class PipelineRunner:
             parser = self._parser_factory.get_parser(country.upper(), "REMATE")
             wrapper = KnowledgeAwareWrapper(parser, rule_engine=self._rule_engine, repository=self._knowledge_repo)
             all_fields = {}
+            # per_aviso_fields: lista con los campos de CADA aviso por
+            # separado (problema #5, campos mezclados). all_fields se deja
+            # intacto (mismo comportamiento de antes, primer valor
+            # encontrado gana) para no romper a quien ya lo consume; esto
+            # es aditivo, no un reemplazo.
+            per_aviso_fields: list[dict] = []
             continuity_output = stages["continuity"].output if stages["continuity"].status == "success" else []
             for aviso in continuity_output or []:
-                text = aviso.full_text if hasattr(aviso, "full_text") else str(aviso)
+                text = _aviso_text(aviso)
                 ctx = ParserContext(country=country.upper(), document_type="REMATE", text=text)
                 parse_results = wrapper.parse(ctx)
+                single_aviso_fields = {}
                 for fname, pr in parse_results.items():
-                    if pr.is_found and fname not in all_fields:
-                        all_fields[fname] = {
+                    if pr.is_found:
+                        entry = {
                             "value": pr.value,
                             "confidence": pr.confidence,
                             "status": pr.status,
                             "evidence": pr.evidence,
                             "source": "parser",
                         }
+                        single_aviso_fields[fname] = entry
+                        if fname not in all_fields:
+                            all_fields[fname] = entry
+                if text.strip():
+                    if country.upper() == "PA":
+                        entry = {
+                            "value": build_descripcion_completa(text),
+                            "confidence": 1.0,
+                            "status": "FOUND",
+                            "evidence": "",
+                            "source": "description_builder",
+                        }
+                        single_aviso_fields["descripcion_completa"] = entry
+                        if "descripcion_completa" not in all_fields:
+                            all_fields["descripcion_completa"] = entry
+                    entry = {
+                        "value": build_descripcion_portada(text),
+                        "confidence": 1.0,
+                        "status": "FOUND",
+                        "evidence": "",
+                        "source": "description_builder",
+                    }
+                    single_aviso_fields["descripcion"] = entry
+                    if "descripcion" not in all_fields:
+                        all_fields["descripcion"] = entry
+                per_aviso_fields.append(single_aviso_fields)
             s.output = all_fields
+            s.per_aviso_fields = per_aviso_fields
             s.status = "success"
-            s.metrics = {"fields_found": len(all_fields)}
+            s.metrics = {"fields_found": len(all_fields), "avisos_processed": len(per_aviso_fields)}
         except Exception as e:
             s.status = "error"
             s.errors.append(str(e))
@@ -274,7 +340,7 @@ class PipelineRunner:
                 rule_result = self._rule_engine.apply_rules(
                     field=fname,
                     text=" ".join(
-                        a.full_text if hasattr(a, "full_text") else str(a)
+                        _aviso_text(a)
                         for a in (stages["continuity"].output or [])
                     ),
                 )
@@ -303,7 +369,7 @@ class PipelineRunner:
         start = time.perf_counter()
         try:
             aviso_text = " ".join(
-                a.full_text if hasattr(a, "full_text") else str(a)
+                _aviso_text(a)
                 for a in (stages["continuity"].output or [])
             )
             v_result = self._validator.validate_notice(
@@ -311,6 +377,11 @@ class PipelineRunner:
                 text=aviso_text,
                 fields_found=stages["knowledge"].output if stages["knowledge"].status == "success" else {},
             )
+            if result.get("metrics", {}).get("ocr_parcial_detectado"):
+                # No inventar ni certificar avisos de una página incompleta:
+                # se marca para revisión sin importar qué haya concluido el
+                # resto de las reglas de validación (problema #7).
+                v_result.decision = Decision.INCOMPLETE
             s.output = v_result
             s.status = "success"
             s.metrics = {"decision": v_result.decision.value, "score": v_result.score}
@@ -453,6 +524,12 @@ class PipelineRunner:
         cert_stage = stages.get("certification")
         cert_doc = cert_stage.output if cert_stage and cert_stage.status == "success" else None
 
+        parser_stage = stages.get("parser")
+        avisos_out = []
+        if parser_stage and parser_stage.status == "success":
+            for i, fields in enumerate(getattr(parser_stage, "per_aviso_fields", []) or []):
+                avisos_out.append({"aviso_index": i, "fields": fields})
+
         return {
             "document": {
                 "document_id": result["document_id"],
@@ -461,6 +538,7 @@ class PipelineRunner:
                 "files": result["files"],
                 "version": result["version"],
             },
+            "avisos": avisos_out,
             "processing": {
                 "timestamp": result["timestamp"],
                 "total_time_ms": result["total_time_ms"],
@@ -501,6 +579,7 @@ class PipelineRunner:
         stage_times = {k: v.duration_ms for k, v in stages.items()}
         result["total_time_ms"] = round(sum(stage_times.values()), 2)
         result["metrics"] = {
+            **result.get("metrics", {}),
             "stage_count": len(stages),
             "stages_completed": sum(1 for v in stages.values() if v.status == "success"),
             "stages_failed": sum(1 for v in stages.values() if v.status == "error"),
@@ -509,6 +588,17 @@ class PipelineRunner:
         result["errors"] = [e for s in stages.values() for e in s.errors]
         result["warnings"] = [w for s in stages.values() for w in s.warnings]
         return result
+
+    def export_duplicate_state(self) -> list[dict]:
+        """Memoria de avisos vistos por el validador, lista para persistir
+        (ej. guardarla junto al documento en DB) y restaurar en una corrida
+        futura con load_duplicate_state(), habilitando deduplicación entre
+        documentos procesados en sesiones distintas."""
+        return self._validator.export_duplicate_state()
+
+    def load_duplicate_state(self, state: list[dict]) -> None:
+        """Restaura memoria de avisos vistos de una sesión anterior."""
+        self._validator.load_duplicate_state(state)
 
     def process_batch(self, documents: list[dict]) -> list[dict]:
         results = []

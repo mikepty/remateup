@@ -297,6 +297,81 @@ class TestOCRMapper(unittest.TestCase):
         self.assertEqual(page.height, 0)
 
 
+HYPHENATED_WORD_RESPONSE = {
+    "responses": [
+        {
+            "fullTextAnnotation": {
+                "pages": [
+                    {
+                        "width": 2000,
+                        "height": 3000,
+                        "blocks": [
+                            {
+                                "blockType": "TEXT",
+                                "confidence": 0.97,
+                                "boundingBox": {"vertices": [
+                                    {"x": 100, "y": 200}, {"x": 500, "y": 200},
+                                    {"x": 500, "y": 260}, {"x": 100, "y": 260},
+                                ]},
+                                "paragraphs": [{
+                                    "words": [
+                                        {
+                                            "boundingBox": {"vertices": [
+                                                {"x": 100, "y": 200}, {"x": 160, "y": 200},
+                                                {"x": 160, "y": 220}, {"x": 100, "y": 220},
+                                            ]},
+                                            "confidence": 0.96,
+                                            "symbols": [
+                                                {"text": "J", "confidence": 0.96},
+                                                {"text": "U", "confidence": 0.96},
+                                                {"text": "D", "confidence": 0.96},
+                                                {"text": "I", "confidence": 0.96},
+                                                {"text": "-", "confidence": 0.9,
+                                                 "property": {"detectedBreak": {"type": "HYPHEN"}}},
+                                            ],
+                                        },
+                                        {
+                                            "boundingBox": {"vertices": [
+                                                {"x": 100, "y": 240}, {"x": 150, "y": 240},
+                                                {"x": 150, "y": 260}, {"x": 100, "y": 260},
+                                            ]},
+                                            "confidence": 0.96,
+                                            "symbols": [
+                                                {"text": "C", "confidence": 0.96},
+                                                {"text": "I", "confidence": 0.96},
+                                                {"text": "A", "confidence": 0.96},
+                                                {"text": "L", "confidence": 0.96},
+                                            ],
+                                        },
+                                    ],
+                                }],
+                            },
+                        ],
+                    },
+                ],
+            },
+        },
+    ],
+}
+
+
+class TestOCRMapperHyphenation(unittest.TestCase):
+    def setUp(self):
+        self.mapper = OCRMapper()
+
+    def test_hyphenated_word_joined_without_hyphen_or_newline(self):
+        doc = self.mapper.map_response(HYPHENATED_WORD_RESPONSE)
+        page_text = doc.pages[0].text
+        self.assertIn("JUDICIAL", page_text)
+        self.assertNotIn("JUDI-", page_text)
+        self.assertNotIn("-\n", page_text)
+
+    def test_hyphenated_word_block_text_also_joined(self):
+        doc = self.mapper.map_response(HYPHENATED_WORD_RESPONSE)
+        block = doc.pages[0].blocks[0]
+        self.assertIn("JUDICIAL", block.text)
+
+
 class TestOCRMapperColumnDetection(unittest.TestCase):
     def setUp(self):
         self.mapper = OCRMapper()

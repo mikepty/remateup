@@ -369,7 +369,16 @@ def aplicar_reglas(datos: dict) -> dict:
     validacion = _calcular_y_validar_valores(datos)
     datos["fianza"] = validacion["fianza_calculada"]
     datos["minimo"] = validacion["minimo_calculado"]
-    
+    # Si el validador resolvió un porcentaje (ej. 40% fijo Colombia), propagarlo
+    if validacion.get("fianza_porcentaje_resuelto") is not None:
+        if datos.get("fianza_porcentaje") in (None, "", "null"):
+            datos["fianza_porcentaje"] = validacion["fianza_porcentaje_resuelto"]
+    datos["_fianza_asumida_por_regla"] = validacion["fianza_asumida_por_regla"]
+    datos["_discrepancia_valores"] = validacion["tiene_discrepancia"]
+    datos["_detalle_discrepancia_valores"] = validacion["detalle"]
+    fianza_asumida_fallback = False
+    minimo_asumido_fallback = False
+
     # Forzar cálculo con valores por defecto si falta pero hay base (backup agresivo)
     base_num = _a_numero(datos.get("base"))
     if base_num and base_num > 500:  # Base válida detectada
@@ -379,9 +388,11 @@ def aplicar_reglas(datos: dict) -> dict:
             if not minimo_pct and pais == 1:
                 minimo_pct = 66.67  # Panamá: 2/3 es el más común
                 datos["minimo_porcentaje"] = minimo_pct
+                minimo_asumido_fallback = True
             elif not minimo_pct and pais == 2:
                 minimo_pct = 70.0  # Colombia: 70% es el más común
                 datos["minimo_porcentaje"] = minimo_pct
+                minimo_asumido_fallback = True
             if minimo_pct:
                 datos["minimo"] = round(base_num * minimo_pct / 100, 2)
         
@@ -391,18 +402,25 @@ def aplicar_reglas(datos: dict) -> dict:
             if not fianza_pct and pais == 1:
                 fianza_pct = 10.0  # Panamá: 10% es el más común
                 datos["fianza_porcentaje"] = fianza_pct
+                fianza_asumida_fallback = True
             elif not fianza_pct and pais == 2:
                 fianza_pct = 40.0  # Colombia: 40% fijo
                 datos["fianza_porcentaje"] = fianza_pct
+                datos["_fianza_asumida_por_regla"] = True
             if fianza_pct:
                 datos["fianza"] = round(base_num * fianza_pct / 100, 2)
-    
-    # Si se asumió el 40% de Colombia por regla (no vino del OCR), se refleja
-    # aquí para que "campos_faltantes" no lo marque como ausente -- pero queda
-    # visible en "_fianza_asumida_por_regla" para que se sepa que no vino leído.
-    datos["fianza_porcentaje"] = validacion["fianza_porcentaje_resuelto"]
-    datos["_fianza_asumida_por_regla"] = validacion["fianza_asumida_por_regla"]
-    datos["_discrepancia_valores"] = validacion["tiene_discrepancia"]
-    datos["_detalle_discrepancia_valores"] = validacion["detalle"]
+
+    # Si se asumió porcentaje por regla (40% CO o fallback PA), limpiar la
+    # discrepancia relacionada: el campo no viene del OCR, pero el cálculo
+    # es correcto y auditado. Mantener la discrepancia solo si el porcentaje
+    # leído viene de OCR y no es válido.
+    if fianza_asumida_fallback or minimo_asumido_fallback:
+        detalle_filtrado = [
+            d for d in datos.get("_detalle_discrepancia_valores", [])
+            if "No se pudo leer el porcentaje" not in d
+        ]
+        datos["_detalle_discrepancia_valores"] = detalle_filtrado
+        if not detalle_filtrado:
+            datos["_discrepancia_valores"] = False
 
     return datos

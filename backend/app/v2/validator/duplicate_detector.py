@@ -13,6 +13,19 @@ class DuplicateDetector:
     def reset(self):
         self._seen_notices = []
 
+    def export_state(self) -> list[dict]:
+        """Devuelve la memoria de avisos vistos, lista para persistir (ej. en DB)
+        y restaurar más tarde con load_state(). Permite deduplicación entre
+        sesiones/días sin que este módulo dependa de ningún almacenamiento
+        concreto: quien lo use decide dónde guardar el resultado."""
+        return [dict(n) for n in self._seen_notices]
+
+    def load_state(self, state: Optional[list[dict]]) -> None:
+        """Restaura memoria de avisos vistos previamente exportada con
+        export_state(), por ejemplo la de una corrida anterior. Sustituye
+        (no acumula sobre) el estado actual."""
+        self._seen_notices = [dict(n) for n in state] if state else []
+
     def check(
         self,
         aviso_id: str,

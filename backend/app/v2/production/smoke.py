@@ -42,6 +42,7 @@ def run_text_pipeline(
     country: str = "CO",
     document_id: str = "",
     source_type: str = "text",
+    validator: Optional[ValidationOrchestrator] = None,
 ) -> dict:
     result: dict[str, Any] = {
         "document_id": document_id or "text_document",
@@ -95,7 +96,7 @@ def run_text_pipeline(
     run_stage("knowledge", lambda: _apply_knowledge(text, country_code, parser_stage))
     knowledge_stage = result["stages"]["knowledge"]
 
-    run_stage("validator", lambda: _validate(result["document_id"], text, knowledge_stage))
+    run_stage("validator", lambda: _validate(result["document_id"], text, knowledge_stage, validator))
     validator_stage = result["stages"]["validator"]
 
     result["fields"] = knowledge_stage.get("output", {}) if knowledge_stage["status"] == "success" else {}
@@ -159,9 +160,10 @@ def _apply_knowledge(text: str, country: str, parser_stage: dict) -> dict:
     return fields
 
 
-def _validate(aviso_id: str, text: str, knowledge_stage: dict) -> Any:
+def _validate(aviso_id: str, text: str, knowledge_stage: dict,
+               validator: Optional[ValidationOrchestrator] = None) -> Any:
     fields = knowledge_stage.get("output", {}) if knowledge_stage["status"] == "success" else {}
-    orchestrator = ValidationOrchestrator()
+    orchestrator = validator if validator is not None else ValidationOrchestrator()
     return orchestrator.validate_notice(
         aviso_id=aviso_id,
         text=text,

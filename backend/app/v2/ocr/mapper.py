@@ -59,7 +59,7 @@ def _extract_blocks_from_page(page_data: dict, page_number: int) -> list[OCRBloc
         words: list[OCRWord] = []
         for p in paragraphs:
             words.extend(_extract_words_from_paragraph(p, page_number))
-        block_text = " ".join(w.text for w in words)
+        block_text = _join_words_simple(words)
         block = OCRBlock(
             text=block_text,
             confidence=block_confidence,
@@ -154,20 +154,35 @@ def _detect_columns(words: list[OCRWord], page_width: int) -> list[tuple[int, in
     return columns
 
 
+def _append_word_with_break(parts: list[str], word_text: str, break_type: str) -> None:
+    """Agrega word_text a parts y decide qué separador va después, según el
+    break_type que reportó Vision. HYPHEN significa que la palabra continúa
+    en la siguiente línea por guion de fin de línea (word-wrap tipográfico):
+    la reconstruimos como una sola palabra (sin '-' ni salto de línea) en vez
+    de dejar el guion suelto, que es lo que después queda partido en
+    descripcion_completa/descripcion. Si el glifo del guion sí quedó
+    capturado como parte del texto de la palabra, se retira; si Vision no lo
+    incluyó, no hay nada que retirar y la unión es igual de correcta."""
+    parts.append(word_text)
+    if break_type == "LINE_BREAK":
+        parts.append("\n")
+    elif break_type == "HYPHEN":
+        if parts[-1].endswith("-"):
+            parts[-1] = parts[-1][:-1]
+        # Sin separador: la palabra continúa directamente en la siguiente línea.
+    elif break_type in ("SPACE", "EOL_SURE_SPACE", ""):
+        parts.append(" ")
+
+
 def _join_words_simple(words: list[OCRWord]) -> str:
     if not words:
         return ""
     result_parts: list[str] = []
     for i, w in enumerate(words):
-        result_parts.append(w.text)
         if i < len(words) - 1:
-            br = w.break_type
-            if br == "LINE_BREAK":
-                result_parts.append("\n")
-            elif br == "HYPHEN":
-                result_parts.append("-\n")
-            elif br in ("SPACE", "EOL_SURE_SPACE", ""):
-                result_parts.append(" ")
+            _append_word_with_break(result_parts, w.text, w.break_type)
+        else:
+            result_parts.append(w.text)
     return "".join(result_parts)
 
 
@@ -262,13 +277,7 @@ def _block_to_text(block: dict) -> str:
                 br = prop.get("detectedBreak", {})
                 if br:
                     break_type = br.get("type", "")
-            parts.append(word_text)
-            if break_type == "LINE_BREAK":
-                parts.append("\n")
-            elif break_type == "HYPHEN":
-                parts.append("-\n")
-            elif break_type in ("SPACE", "EOL_SURE_SPACE", ""):
-                parts.append(" ")
+            _append_word_with_break(parts, word_text, break_type)
     return "".join(parts).strip()
 
 

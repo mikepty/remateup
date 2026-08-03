@@ -71,6 +71,113 @@ def _ventana_aviso_ocr(texto_ocr: str, pos: int, antes: int = 2000, despues: int
     return texto_ocr[max(0, pos - antes):fin]
 
 
+def _buscar_fianza_minimo_en_ocr(datos: dict, texto_ocr: str, pais: int) -> dict:
+    """Red de seguridad: si la IA no asoció fianza/minimo porcentaje, busca
+    determinísticamente en el texto OCR usando patrones judiciales reales.
+    
+    Patrones comunes en Panamá:
+    - "diez por ciento ( 10 % ) de la base del remate"
+    - "el 10 % de la base del remate"
+    - "consignar el diez ( 10 % ) de la base"
+    - "VEINTICINCO POR CIENTO ( 25 % ) de la base"
+    
+    Para mínimo:
+    - "las dos terceras ( 2/3 )" -> 66.67%
+    - "la mitad" / "50%" -> 50%
+    - "TOTALIDAD" / "100%" -> 100%
+    """
+    if not texto_ocr or not datos.get("expediente"):
+        return {}
+    
+    expediente = str(datos.get("expediente") or "").strip()
+    pos = texto_ocr.find(expediente)
+    if pos == -1:
+        solo_digitos = re.sub(r"\D", "", expediente)
+        if len(solo_digitos) >= 5:
+            pos = texto_ocr.find(solo_digitos)
+        if pos == -1:
+            return {}
+    
+    # The fianza/minimo info can appear BEFORE or AFTER the expediente in the
+    # OCR text. Search a wide window covering both directions (up to 50k chars
+    # total, bounded to the text).
+    antes = 10000
+    despues = 30000
+    inicio = max(0, pos - antes)
+    fin = min(len(texto_ocr), pos + despues)
+    # Avoid crossing into another aviso
+    prox = texto_ocr.find("AVISO DE REMATE", pos + 1)
+    if prox != -1 and prox < fin:
+        fin = prox
+    # Also look for the previous AVISO DE REMATE to bound backwards
+    prev = texto_ocr.rfind("AVISO DE REMATE", inicio)
+    if prev != -1 and prev > inicio:
+        inicio = prev + len("AVISO DE REMATE")
+    
+    ventana = texto_ocr[inicio:fin]
+    
+    resultados = {}
+    
+    # Fianza: buscar porcentajes legales válidos según país
+    fianza_pct = None
+    if pais == 2:
+        porcentajes_fianza = {40}
+    else:
+        porcentajes_fianza = {10, 20, 25}
+    
+    # 1) "diez por ciento ( 10 % )" o "diez ( 10 % )" - formato judicial
+    for m in re.finditer(
+        r"\b(diez|veinte|veinticinco|cuarenta)?\s*(?:\(\s*)?(\d{1,2})\s*%\s*(?:\))?\s*de\s+(?:la\s+)?base\s+del\s+remate",
+        ventana, re.IGNORECASE):
+        v = int(m.group(2))
+        if v in porcentajes_fianza:
+            fianza_pct = float(v)
+            break
+    
+    # 2) "el X % de la base" sin palabra
+    if fianza_pct is None:
+        for m in re.finditer(r"el\s+(\d{1,2})\s*%\s*de\s+la\s+base\s+del\s+remate", ventana, re.IGNORECASE):
+            v = int(m.group(1))
+            if v in porcentajes_fianza:
+                fianza_pct = float(v)
+                break
+    
+    # 3) Pattern general: cualquier X% que sea un valor legal de fianza
+    if fianza_pct is None:
+        for m in re.finditer(r"(\d{1,2})\s*%", ventana):
+            v = int(m.group(1))
+            if v in porcentajes_fianza:
+                # Avoid false positive from interest rates like "1.75%"
+                previo = ventana[max(0, m.start()-30):m.start()].upper()
+                # Skip if preceded by interest/tasa context
+                if any(k in previo for k in ("INTERÉS", "INTERES", "TASA", "EFECTIVA")):
+                    continue
+                fianza_pct = float(v)
+                break
+    
+    if fianza_pct:
+        resultados["fianza_porcentaje"] = fianza_pct
+    
+    # Mínimo: buscar patrones
+    minimo_pct = None
+    if "2/3" in ventana or "DOS TERCERAS" in ventana.upper():
+        minimo_pct = 66.67
+    elif "LA MITAD" in ventana.upper() or re.search(r"50\s*%", ventana):
+        minimo_pct = 50.0
+    elif "TOTALIDAD" in ventana.upper() or re.search(r"100\s*%", ventana):
+        minimo_pct = 100.0
+    else:
+        m = re.search(r"(?:POSTURA\s+MINIMA|MINIMO|MINIMA)[^\d]{0,60}?(\d{1,3}(?:\.\d{1,2})?)\s*%",
+                     ventana, re.IGNORECASE)
+        if m:
+            minimo_pct = float(m.group(1))
+    
+    if minimo_pct:
+        resultados["minimo_porcentaje"] = minimo_pct
+    
+    return resultados
+
+
 def _buscar_base_en_ocr(datos: dict, texto_ocr: str) -> float | None:
     """Red de seguridad: si la IA no asoció el monto (base) del aviso, se busca
     determinísticamente en el texto OCR DESPUÉS del expediente (el monto de un
@@ -196,6 +303,14 @@ def procesar_documento(db: Session, documento: Documento) -> list[Aviso]:
                     pagina = _pagina_prensa_desde_ocr(texto_ocr)
                     if pagina:
                         item["datos"]["pagina_prensa"] = pagina
+                # Recuperar fianza/minimo porcentaje del OCR si la IA no los encontró
+                fm_ocr = _buscar_fianza_minimo_en_ocr(item["datos"], texto_ocr, documento.pais)
+                if fm_ocr.get("fianza_porcentaje") and not item["datos"].get("fianza_porcentaje"):
+                    item["datos"]["fianza_porcentaje"] = fm_ocr["fianza_porcentaje"]
+                    item["confianza"]["fianza_porcentaje"] = 0.9
+                if fm_ocr.get("minimo_porcentaje") and not item["datos"].get("minimo_porcentaje"):
+                    item["datos"]["minimo_porcentaje"] = fm_ocr["minimo_porcentaje"]
+                    item["confianza"]["minimo_porcentaje"] = 0.9
                 base_ocr = _buscar_base_en_ocr(item["datos"], texto_ocr)
                 if base_ocr:
                     item["datos"]["base"] = str(base_ocr)

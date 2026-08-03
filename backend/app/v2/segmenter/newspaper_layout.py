@@ -33,7 +33,18 @@ class NewspaperLayout:
         if not blocks:
             return []
 
-        columns = self._column_analyzer.analyze(blocks, stitched_page.width, stitched_page.height)
+        explicit_columns = {
+            sb.column_index: block
+            for sb, block in zip(stitched_page.blocks, blocks)
+            if sb.column_index >= 0
+        }
+        if explicit_columns:
+            columns = [
+                DetectedColumn(index=index, bbox=block.bbox, blocks=[block])
+                for index, block in sorted(explicit_columns.items())
+            ]
+        else:
+            columns = self._column_analyzer.analyze(blocks, stitched_page.width, stitched_page.height)
         all_avisos: list[DetectedAviso] = []
 
         for col in columns:

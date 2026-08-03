@@ -21,6 +21,17 @@ class ValidationOrchestrator:
     def reset(self):
         self._dedup.reset()
 
+    def export_duplicate_state(self) -> list[dict]:
+        """Memoria de avisos vistos por el detector de duplicados, lista para
+        persistir y reutilizar en una futura sesión (ver DuplicateDetector)."""
+        return self._dedup.export_state()
+
+    def load_duplicate_state(self, state: Optional[list[dict]]) -> None:
+        """Restaura memoria de avisos vistos de una sesión anterior, para que
+        la detección de duplicados funcione entre documentos procesados en
+        distintas corridas (no solo dentro del mismo lote)."""
+        self._dedup.load_state(state)
+
     def validate_notice(
         self,
         aviso_id: str,
@@ -62,8 +73,10 @@ class ValidationOrchestrator:
     def validate_batch(
         self,
         avisos: list[dict],
+        reset_duplicates: bool = True,
     ) -> ValidationResult:
-        self.reset()
+        if reset_duplicates:
+            self.reset()
         decisions: list[NoticeDecision] = []
         for aviso in avisos:
             d = self.validate_notice(

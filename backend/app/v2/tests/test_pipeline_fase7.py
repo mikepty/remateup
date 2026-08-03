@@ -415,5 +415,196 @@ class TestPipelineRunner(unittest.TestCase):
         self.assertEqual(PIPELINE_VERSION, "7.0.0")
 
 
+class TestNoMixingBetweenAvisos(unittest.TestCase):
+    """Regresion del problema #5 (campos mezclados): antes, el parser
+    mezclaba en un solo dict los campos de TODOS los avisos de un
+    documento (expediente del aviso 1 + finca del aviso 2, etc, primer
+    valor encontrado ganaba y el resto se perdia silenciosamente)."""
+
+    def _run_with_two_avisos(self):
+        from backend.app.v2.segmenter.models import CompleteAviso
+
+        aviso1_text = ("AVISO DE REMATE\nEXPEDIENTE N\u00b0 11111-2026\n"
+                       "AVAL\u00daO COMERCIAL: $50,000.00")
+        aviso2_text = ("AVISO DE REMATE\nEXPEDIENTE N\u00b0 22222-2026\n"
+                       "FINCA 999888")
+        fake_avisos = [MagicMock(position="top"), MagicMock(position="bottom")]
+
+        runner = PipelineRunner()
+        fake_fragment = MagicMock()
+        fake_fragment.path = "fake_top.jpg"
+        fake_page_in = MagicMock()
+        fake_page_in.fragments = [fake_fragment]
+        fake_ocr_page = MagicMock()
+        fake_ocr_doc = MagicMock()
+        fake_ocr_doc.pages = [fake_ocr_page]
+
+        with patch.object(runner._assembly, "assemble",
+                           return_value=MagicMock(pages=[fake_page_in])), \
+             patch.object(runner._ocr, "process_image", return_value=fake_ocr_doc), \
+             patch("backend.app.v2.document.stitching.PageStitcher.stitch_ocr_pages",
+                   return_value=[MagicMock()]), \
+             patch.object(runner._layout, "segment", return_value=fake_avisos), \
+             patch.object(runner._continuity, "detect_continuity",
+                           return_value=[CompleteAviso(text=aviso1_text),
+                                         CompleteAviso(text=aviso2_text)]):
+            result = runner.process(["fake_top.jpg", "fake_bottom.jpg"],
+                                     country="PA", document_id="doc1")
+        return result
+
+    def test_each_aviso_keeps_its_own_expediente(self):
+        result = self._run_with_two_avisos()
+        avisos = result["final_json"]["avisos"]
+        self.assertEqual(len(avisos), 2)
+        exp0 = avisos[0]["fields"].get("expediente", {}).get("value", "")
+        exp1 = avisos[1]["fields"].get("expediente", {}).get("value", "")
+        self.assertIn("11111", exp0)
+        self.assertIn("22222", exp1)
+
+    def test_finca_not_leaked_into_first_aviso(self):
+        # El aviso 1 no tiene "FINCA" en su texto: no debe aparecer en sus
+        # campos aunque el aviso 2 si la tenga.
+        result = self._run_with_two_avisos()
+        avisos = result["final_json"]["avisos"]
+        self.assertNotIn("finca", avisos[0]["fields"])
+        self.assertIn("finca", avisos[1]["fields"])
+
+    def test_each_aviso_gets_its_own_descripcion(self):
+        result = self._run_with_two_avisos()
+        avisos = result["final_json"]["avisos"]
+        d0 = avisos[0]["fields"]["descripcion_completa"]["value"]
+        d1 = avisos[1]["fields"]["descripcion_completa"]["value"]
+        self.assertIn("11111", d0)
+        self.assertNotIn("22222", d0)
+        self.assertIn("22222", d1)
+        self.assertNotIn("11111", d1)
+
+    def test_flat_fields_dict_kept_for_backward_compatibility(self):
+        # result["fields"] (el dict plano de siempre) sigue existiendo con
+        # el comportamiento anterior (primer aviso encontrado gana), para
+        # no romper a quien ya lo consume.
+        result = self._run_with_two_avisos()
+        self.assertIn("expediente", result["fields"])
+
+
+class TestPartialOCRDetection(unittest.TestCase):
+    """Problema #7: si falta la mitad de una página (imagen impar sin
+    pareja), no debe certificarse como si la página estuviera completa."""
+
+    def test_partial_page_forces_incomplete_decision(self):
+        from backend.app.v2.segmenter.models import CompleteAviso
+        from backend.app.v2.document.stitching import StitchedPage, FragmentMapping
+        from backend.app.v2.validator.models import Decision
+
+        runner = PipelineRunner()
+        fake_fragment = MagicMock()
+        fake_fragment.path = "fake_top.jpg"
+        fake_page_in = MagicMock()
+        fake_page_in.fragments = [fake_fragment]
+        fake_ocr_page = MagicMock()
+        fake_ocr_doc = MagicMock()
+        fake_ocr_doc.pages = [fake_ocr_page]
+
+        partial_stitched = StitchedPage(
+            page_number=1,
+            fragment_mapping=FragmentMapping(page_number=1, is_partial=True, missing_side="bottom"),
+        )
+        fake_avisos = [MagicMock(position="top")]
+
+        with patch.object(runner._assembly, "assemble",
+                           return_value=MagicMock(pages=[fake_page_in])), \
+             patch.object(runner._ocr, "process_image", return_value=fake_ocr_doc), \
+             patch("backend.app.v2.document.stitching.PageStitcher.stitch_ocr_pages",
+                   return_value=[partial_stitched]), \
+             patch.object(runner._layout, "segment", return_value=fake_avisos), \
+             patch.object(runner._continuity, "detect_continuity",
+                           return_value=[CompleteAviso(text="AVISO DE REMATE\nEXPEDIENTE N\u00b0 1")]):
+            result = runner.process(["fake_top.jpg"], country="PA", document_id="doc1")
+
+        self.assertTrue(result["metrics"].get("ocr_parcial_detectado"))
+        self.assertEqual(result["validation"]["decision"], Decision.INCOMPLETE.value)
+        seg_warnings = result["stages"]["segmentation"]["warnings"]
+        self.assertTrue(any("incompleta" in w for w in seg_warnings))
+
+    def test_complete_page_not_marked_incomplete(self):
+        # Contraprueba: una página completa (sin partial_pages) no debe
+        # forzar INCOMPLETE por esta lógica.
+        from backend.app.v2.segmenter.models import CompleteAviso
+        from backend.app.v2.document.stitching import StitchedPage, FragmentMapping
+
+        runner = PipelineRunner()
+        fake_fragment = MagicMock()
+        fake_fragment.path = "fake_top.jpg"
+        fake_page_in = MagicMock()
+        fake_page_in.fragments = [fake_fragment]
+        fake_ocr_page = MagicMock()
+        fake_ocr_doc = MagicMock()
+        fake_ocr_doc.pages = [fake_ocr_page]
+
+        complete_stitched = StitchedPage(
+            page_number=1,
+            fragment_mapping=FragmentMapping(page_number=1, is_partial=False),
+        )
+        fake_avisos = [MagicMock(position="top")]
+
+        with patch.object(runner._assembly, "assemble",
+                           return_value=MagicMock(pages=[fake_page_in])), \
+             patch.object(runner._ocr, "process_image", return_value=fake_ocr_doc), \
+             patch("backend.app.v2.document.stitching.PageStitcher.stitch_ocr_pages",
+                   return_value=[complete_stitched]), \
+             patch.object(runner._layout, "segment", return_value=fake_avisos), \
+             patch.object(runner._continuity, "detect_continuity",
+                           return_value=[CompleteAviso(text="AVISO DE REMATE\nEXPEDIENTE N\u00b0 1")]):
+            result = runner.process(["fake_top.jpg"], country="PA", document_id="doc1")
+
+        self.assertNotIn("ocr_parcial_detectado", result["metrics"])
+
+
+class TestAvisoTextExtraction(unittest.TestCase):
+    """Regresión: el parser/knowledge/validator recibían str(aviso) (el repr
+    del dataclass) en vez del texto real para todo aviso que pasó por el
+    motor de continuidad (CompleteAviso no tiene .full_text, solo .text)."""
+
+    def test_complete_aviso_uses_text_attribute_not_repr(self):
+        from backend.app.v2.pipeline.runner import _aviso_text
+        from backend.app.v2.segmenter.models import CompleteAviso
+
+        aviso = CompleteAviso(text="EXPEDIENTE N 12345 AVALUO COMERCIAL: $100.000.00")
+        extracted = _aviso_text(aviso)
+        self.assertEqual(extracted, "EXPEDIENTE N 12345 AVALUO COMERCIAL: $100.000.00")
+        self.assertNotIn("CompleteAviso(", extracted)
+
+    def test_detected_aviso_still_uses_full_text(self):
+        from backend.app.v2.pipeline.runner import _aviso_text
+        from backend.app.v2.segmenter.models import DetectedAviso, DetectedSection
+
+        aviso = DetectedAviso(
+            header_text="AVISO DE REMATE",
+            sections=[DetectedSection(text="EXPEDIENTE N 12345")],
+        )
+        extracted = _aviso_text(aviso)
+        self.assertEqual(extracted, "AVISO DE REMATE\nEXPEDIENTE N 12345")
+
+    def test_parser_stage_finds_fields_in_complete_aviso_text(self):
+        # Antes de este fix, el parser real recibía el repr de CompleteAviso
+        # (vía _aviso_text) y no encontraba ningún campo. Se prueba con el
+        # mismo helper que usa pipeline/runner.py en las etapas de parser,
+        # knowledge y validator.
+        from backend.app.v2.pipeline.runner import _aviso_text
+        from backend.app.v2.segmenter.models import CompleteAviso
+        from backend.app.v2.parser.factory import ParserFactory
+        from backend.app.v2.parser.context import ParserContext
+
+        aviso = CompleteAviso(
+            text="AVISO DE REMATE\nEXPEDIENTE N\u00b0 32852-2026\n"
+                 "AVAL\u00daO COMERCIAL: $85,000.00")
+        text = _aviso_text(aviso)
+        parser = ParserFactory().get_parser("PA", "REMATE")
+        ctx = ParserContext(country="PA", document_type="REMATE", text=text)
+        results = parser.parse(ctx)
+        self.assertTrue(results["expediente"].is_found)
+        self.assertTrue(results["precio_base"].is_found)
+
+
 if __name__ == "__main__":
     unittest.main()

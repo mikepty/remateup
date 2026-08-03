@@ -43,6 +43,26 @@ class TestLineDetector(unittest.TestCase):
         self.assertEqual(len(merged), 1)
         self.assertEqual(merged[0].text, "AVIS")
 
+    def test_hyphenated_word_reconstructed_no_hyphen_no_newline(self):
+        # Vision reporta HYPHEN cuando una palabra se corta por guion de fin
+        # de línea (ej. "JUDI-" / "CIAL" -> "JUDICIAL"). No debe quedar ni el
+        # guion ni el salto de línea en el texto reconstruido.
+        w1 = OCRWord(text="JUDI-", confidence=0.95, x0=100, y0=200, x1=160, y1=220,
+                     page=1, break_type="HYPHEN")
+        w2 = OCRWord(text="CIAL", confidence=0.95, x0=100, y0=200, x1=150, y1=220, page=1)
+        line = self.detector._build_line([w1, w2])
+        self.assertEqual(line.text, "JUDICIAL")
+
+    def test_hyphenated_word_reconstructed_when_ocr_omits_hyphen_glyph(self):
+        # Si Vision no capturó el glifo del guion como parte del texto de la
+        # palabra, la unión directa sigue siendo correcta (no hay nada que
+        # retirar).
+        w1 = OCRWord(text="CIR", confidence=0.95, x0=100, y0=200, x1=140, y1=220,
+                     page=1, break_type="HYPHEN")
+        w2 = OCRWord(text="CUITO", confidence=0.95, x0=100, y0=200, x1=160, y1=220, page=1)
+        line = self.detector._build_line([w1, w2])
+        self.assertEqual(line.text, "CIRCUITO")
+
     def test_merge_split_words_no_merge(self):
         w1 = OCRWord(text="AVISO", confidence=0.98, x0=100, y0=200, x1=200, y1=220, page=1)
         w2 = OCRWord(text="DE", confidence=0.95, x0=300, y0=200, x1=340, y1=220, page=1)

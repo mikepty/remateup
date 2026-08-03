@@ -505,12 +505,12 @@ def _acc():
 
 def test_dashboard_panama_precision_1():
     pa = _acc()["panama"]
-    assert pa["tp"] == 52
+    assert pa["tp"] == 58
     assert pa["fp"] == 0
-    assert pa["fn"] == 6
+    assert pa["fn"] == 0
     assert approx(pa["precision"], 1.0)
-    assert approx(pa["recall"], 0.8966)
-    assert approx(pa["f1"], 0.9455)
+    assert approx(pa["recall"], 1.0)
+    assert approx(pa["f1"], 1.0)
 
 
 def test_dashboard_panama_por_campo():
@@ -519,8 +519,8 @@ def test_dashboard_panama_por_campo():
     assert por["expediente"]["recall"] == 1.0
     assert por["demandante"]["recall"] == 1.0
     assert por["demandado"]["recall"] == 1.0
-    assert por["precio_base"]["recall"] == 0.5, "AVALÚO COMERCIAL no cubierto por parser PA"
-    assert por["precio_base"]["fn"] == 6
+    assert por["precio_base"]["recall"] == 1.0, "AVALÚO COMERCIAL ya cubierto por parser PA"
+    assert por["precio_base"]["fn"] == 0
 
 
 def test_dashboard_colombia_cero():
@@ -539,7 +539,7 @@ def test_dashboard_por_parser():
 def test_dashboard_cobertura_por_campo():
     acc = _acc()
     cob = acc["cobertura_por_campo"]
-    assert cob["precio_base"]["cobertura_pa"] == 0.5
+    assert cob["precio_base"]["cobertura_pa"] == 1.0
     assert cob["expediente"]["cobertura_pa"] == 1.0
     assert cob["expediente"]["cobertura_co"] == 0.0
 

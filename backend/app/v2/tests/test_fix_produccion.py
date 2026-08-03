@@ -27,6 +27,7 @@ from backend.app.pipeline.orchestrator import (
     _cabecera_periodico_desde_ocr,
     _pagina_prensa_desde_ocr,
     _buscar_base_en_ocr,
+    _buscar_fianza_minimo_en_ocr,
 )
 from backend.app.pipeline.business_rules import _generar_prevista, _generar_codigo_prensa, aplicar_reglas
 
@@ -308,3 +309,86 @@ def test_descripcion_portada_recorta_despues_de_30_palabras(sin_bd):
     salida = aplicar_reglas({"pais": 1, "descripcion": descripcion})
     assert len(salida["descripcion"].split()) == 30
     assert salida["descripcion_completa"] == descripcion
+
+
+# ── 8. Fianza/mínimo fallback ────────────────────────────────────────────────
+
+
+def test_pa_fianza_fallback_cuando_ia_no_la_encuentra(sin_bd):
+    """Cuando la IA no extrae fianza_porcentaje pero hay base válida,
+    business_rules debe asumir 10% (el más común en Panamá) y calcular
+    el monto, SIN que se pierda el valor (bug: linea 403 lo sobreescriba)."""
+    d = {
+        "pais": 1,
+        "base": "68871.80",
+        "fianza_porcentaje": None,
+        "minimo_porcentaje": None,
+    }
+    salida = aplicar_reglas(d)
+    assert salida["fianza_porcentaje"] == 10.0
+    assert salida["fianza"] == 6887.18
+    assert salida["minimo_porcentaje"] == 66.67
+    assert salida["minimo"] == 45916.83
+    assert salida["_discrepancia_valores"] is False
+
+
+def test_co_fianza_fija_40_por_ciento(sin_bd):
+    """Colombia: fianza es 40% fijo, asumido por regla cuando no viene del OCR."""
+    d = {
+        "pais": 2,
+        "base": "100000",
+        "fianza_porcentaje": None,
+        "minimo_porcentaje": None,
+    }
+    salida = aplicar_reglas(d)
+    assert salida["fianza_porcentaje"] == 40.0
+    assert salida["fianza"] == 40000.0
+    assert salida["_fianza_asumida_por_regla"] is True
+    assert salida.get("_discrepancia_valores", False) is False
+
+
+def test_pa_mantiene_fianza_ia_si_existe(sin_bd):
+    """Si la IA extrajo fianza_porcentaje, no se sobreescibe con el fallback."""
+    d = {
+        "pais": 1,
+        "base": "45700.0",
+        "fianza_porcentaje": 25.0,
+        "minimo_porcentaje": 66.67,
+    }
+    salida = aplicar_reglas(d)
+    assert salida["fianza_porcentaje"] == 25.0
+    assert salida["fianza"] == 11425.0
+    assert salida["minimo_porcentaje"] == 66.67
+    assert salida["minimo"] == 30468.19
+
+
+def test_pa_fianza_invalida_mantiene_discrepancia(sin_bd):
+    """Si la IA extrajo un porcentaje no legal (ej. 15%), se mantiene la discrepancia."""
+    d = {
+        "pais": 1,
+        "base": "56000.0",
+        "fianza_porcentaje": 15.0,
+        "minimo_porcentaje": 66.67,
+    }
+    salida = aplicar_reglas(d)
+    assert salida["_discrepancia_valores"] is True
+    assert any("15.0%" in d for d in salida["_detalle_discrepancia_valores"])
+
+
+def test_buscar_fianza_minimo_en_ocr_encuentra_diez_por_ciento():
+    texto = "AVISO DE REMATE EXP. 12345-25 La suscrita ALGUACIL EJECUTORA... "
+    texto += "para habilitarse como postor se requiere consignar previamente el diez por ciento ( 10 % ) de la base del remate "
+    texto += "postura admisible la que cubra las dos terceras partes ( 2/3 ) de la base del remate."
+    datos = {"expediente": "12345-25", "pais": 1, "fianza_porcentaje": None}
+    result = _buscar_fianza_minimo_en_ocr(datos, texto, 1)
+    assert result.get("fianza_porcentaje") == 10.0
+    assert result.get("minimo_porcentaje") == 66.67
+
+
+def test_buscar_fianza_minimo_en_ocr_encuentra_veinticinco():
+    texto = "AVISO DE REMATE EXP. 14605-24 ... el VEINTICINCO POR CIENTO ( 25 % ) de la base del remate "
+    texto += "postura admisible la que cubra la mitad de la base."
+    datos = {"expediente": "14605-24", "pais": 1, "fianza_porcentaje": None}
+    result = _buscar_fianza_minimo_en_ocr(datos, texto, 1)
+    assert result.get("fianza_porcentaje") == 25.0
+    assert result.get("minimo_porcentaje") == 50.0

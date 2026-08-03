@@ -1,4 +1,5 @@
 from backend.app.v2.ocr.models import OCRWord
+from backend.app.v2.ocr.mapper import _append_word_with_break
 from backend.app.v2.segmenter.models import DetectedLine, BoundingBox
 
 
@@ -45,15 +46,10 @@ class LineDetector:
         bboxes = []
 
         for i, w in enumerate(sorted_w):
-            text_parts.append(w.text)
             if i < len(sorted_w) - 1:
-                br = w.break_type
-                if br == "LINE_BREAK":
-                    text_parts.append("\n")
-                elif br == "HYPHEN":
-                    text_parts.append("-\n")
-                elif br in ("SPACE", "EOL_SURE_SPACE", ""):
-                    text_parts.append(" ")
+                _append_word_with_break(text_parts, w.text, w.break_type)
+            else:
+                text_parts.append(w.text)
 
             bboxes.append((w.x0, w.y0, w.x1, w.y1))
 

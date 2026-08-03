@@ -20,7 +20,19 @@ from backend.app.v2.document.models import SectionType
 
 
 _REMATE_HEADERS = re.compile(
-    r"^(AVISO\s+DE\s+REMATE|REMATE\s+JUDICIAL|SUBASTA\s+JUDICIAL)",
+    r"(?:^|\n)(AVISO\s+DE\s+REMATE|REMATE\s+JUDICIAL|SUBASTA\s+JUDICIAL)",
+    re.IGNORECASE,
+)
+
+_REMATE_BASE = re.compile(
+    r"(?:BASE\s+DEL\s+REMATE|BASE\s+PARA\s*EL\s+REMATE|"
+    r"SERVIR[ÁA]?\s+DE\s+BASE.{0,80}?REMATE)",
+    re.IGNORECASE | re.DOTALL,
+)
+_REMATE_POSTURA = re.compile(r"POSTURA|POSTOR|PUJA|REPuja", re.IGNORECASE)
+_REMATE_PROCEDURE = re.compile(
+    r"AVISO\s+DE\s+REMATE|CERTIFICADO\s+DE\s+DEP[ÓO]SITO|"
+    r"P[ÚU]BLICA\s+SUBASTA|DILIGENCIA\s+DE\s+REMATE",
     re.IGNORECASE,
 )
 
@@ -35,8 +47,10 @@ class NoticeDetector:
 
         for group in grouped:
             header_text = self._find_header(group)
-            if not header_text:
+            if not header_text and not self._is_remate_body(group):
                 continue
+            if not header_text:
+                header_text = "AVISO DE REMATE"
 
             group_bbox = self._compute_bbox(group)
             confidence = self._compute_confidence(group)
@@ -63,10 +77,18 @@ class NoticeDetector:
     def _find_header(self, blocks: list) -> str:
         for b in blocks:
             text = getattr(b, "text", "") or ""
-            match = _REMATE_HEADERS.match(text.strip())
+            match = _REMATE_HEADERS.search(text.strip())
             if match:
-                return match.group(0)
+                return match.group(1)
         return ""
+
+    def _is_remate_body(self, blocks: list) -> bool:
+        text = "\n".join((getattr(block, "text", "") or "") for block in blocks)
+        return bool(
+            _REMATE_BASE.search(text)
+            and _REMATE_POSTURA.search(text)
+            and _REMATE_PROCEDURE.search(text)
+        )
 
     def _group_by_header(self, blocks: list) -> list[list]:
         groups: list[list] = []
@@ -74,7 +96,7 @@ class NoticeDetector:
 
         for b in blocks:
             text = getattr(b, "text", "") or ""
-            if _REMATE_HEADERS.match(text.strip()):
+            if _REMATE_HEADERS.search(text.strip()):
                 if current:
                     groups.append(current)
                 current = [b]

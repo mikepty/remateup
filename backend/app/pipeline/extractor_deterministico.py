@@ -44,6 +44,27 @@ _CAMPOS_RESPALDO_DESCRIPCION = {
     "hora", "base", "fianza_porcentaje", "minimo_porcentaje",
 }
 
+
+def _extraer_fianza_minimo_desde_ventana(texto: str) -> tuple[float | None, float | None]:
+    """Extrae porcentajes de fianza y mínimo de una ventana de texto OCR.
+    Devuelve (fianza_pct, minimo_pct)."""
+    fianza_pct = _extraer_fianza_pct(texto)
+    
+    minimo_pct = None
+    if "2/3" in texto or "DOS TERCERAS" in texto.upper():
+        minimo_pct = 66.67
+    elif "LA MITAD" in texto.upper() or re.search(r"50\s*%", texto):
+        minimo_pct = 50.0
+    elif "TOTALIDAD" in texto.upper() or re.search(r"100\s*%", texto):
+        minimo_pct = 100.0
+    else:
+        m = re.search(r"(?:POSTURA\s+MINIMA|MINIMO)[^\d]{0,60}?(\d{1,3}(?:\.\d{1,2})?)\s*%",
+                     texto, re.IGNORECASE)
+        if m:
+            minimo_pct = float(m.group(1))
+    
+    return fianza_pct, minimo_pct
+
 # Porcentajes legales de FIANZA (PA: 10/20/25 ; CO: 40 fijo).
 # Se usa para VALIDAR cualquier porcentaje leído: el mínimo usa 50/66.67/100,
 # conjunto disjunto, de modo que nunca se confunden.

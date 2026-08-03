@@ -8,11 +8,16 @@ from backend.app.v2.parser.result import ParseResult
 _SECTION_LABELS = {
     "expediente": [r"EXPEDIENTE", r"EXPE\.?", r"E\.?J\.?E\.?"],
     "finca": [r"FINCA", r"FINC", r"F\.?"],
-    "precio_base": [r"BASE", r"BASE\s+DEL\s+REMATE", r"PRECIO\s+BASE"],
+    "precio_base": [r"BASE", r"BASE\s+DEL\s+REMATE", r"PRECIO\s+BASE",
+                     r"AVAL[UÚ]O\s+COMERCIAL"],
     "fecha_remate": [r"FECHA", r"FECHA\s+DE\s+REMATE", r"REMATE"],
     "demandante": [r"DEMANDANTE", r"ACTOR", r"EJECUTANTE"],
     "demandado": [r"DEMANDADO", r"DEUDOR", r"EJECUTADO"],
 }
+
+# Símbolo de moneda antes del monto: en Panamá aparece como B/. (balboas) o
+# como $ según el periódico/juzgado. Ambos opcionales y equivalentes aquí.
+_CURRENCY = r"(?:B[/\.]|\$)?"
 
 _PATTERNS = {
     "expediente": [
@@ -24,10 +29,14 @@ _PATTERNS = {
         r"(?:MATRICULA\s+)?(?:INMUEBLE|PROPIEDAD)\s*[:\s]*(\d[\d\s/-]*)",
     ],
     "precio_base": [
-        r"BASE\s+DEL\s+REMATE\s*[:\s]*B[/\.]?\s*([\d,\.]+)",
-        r"BASE\s*[:\s]*B[/\.]?\s*([\d,\.]+)",
+        r"BASE\s+DEL\s+REMATE\s*[:\s]*" + _CURRENCY + r"\s*([\d,\.]+)",
+        # AVALÚO COMERCIAL: la etiqueta real que usan los avisos de Panamá
+        # para lo que el sistema llama precio_base (ver informe de gap: 6/6
+        # casos perdidos usaban esta etiqueta y ninguna variante de "BASE").
+        r"AVAL[UÚ]O\s+COMERCIAL\s*[:\s]*" + _CURRENCY + r"\s*([\d,\.]+)",
+        r"BASE\s*[:\s]*" + _CURRENCY + r"\s*([\d,\.]+)",
         r"BASE\s*[:\s]*([\d,\.]+)",
-        r"VALOR\s+(?:DEL\s+)?(?:REMATE|BASE|AVALUO)\s*[:\s]*B[/\.]?\s*([\d,\.]+)",
+        r"VALOR\s+(?:DEL\s+)?(?:REMATE|BASE|AVAL[UÚ]O(?:\s+COMERCIAL)?)\s*[:\s]*" + _CURRENCY + r"\s*([\d,\.]+)",
     ],
     "fecha_remate": [
         r"FECHA\s*(?:DE\s+REMATE|DEL\s+REMATE|PROBABLE)?\s*[:\s]*(\d{1,2}\s+DE\s+[A-ZÁÉÍÓÚ]+\s+DE\s+\d{4})",

@@ -14,6 +14,8 @@ from typing import Any, Optional
 from backend.app.v2.production.config import ProductionConfig, get_default
 from backend.app.v2.production.logging import StructuredLogger
 from backend.app.v2.production.smoke import run_text_pipeline
+from backend.app.v2.pipeline.runner import PipelineRunner
+from backend.app.v2.validator.orchestrator import ValidationOrchestrator
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
 PDF_EXTENSIONS = {".pdf"}
@@ -22,9 +24,28 @@ TEXT_EXTENSIONS = {".txt", ".text"}
 
 class BatchRunner:
     def __init__(self, config: Optional[ProductionConfig] = None,
-                 logger: Optional[StructuredLogger] = None):
+                 logger: Optional[StructuredLogger] = None,
+                 duplicate_state: Optional[list[dict]] = None):
         self.config = config or get_default()
         self.logger = logger or StructuredLogger(log_path=self.config.log_file_path())
+        # Una sola instancia compartida para todo el lote: así la memoria de
+        # duplicados (DuplicateDetector) persiste entre archivos/documentos
+        # en vez de reiniciarse en cada uno. `duplicate_state` permite además
+        # sembrarla con lo exportado de una corrida anterior (otro día), para
+        # deduplicar realmente entre documentos y no solo dentro del mismo lote.
+        self._runner = PipelineRunner()
+        self._text_validator = ValidationOrchestrator()
+        if duplicate_state:
+            self._runner.load_duplicate_state(duplicate_state)
+            self._text_validator.load_duplicate_state(duplicate_state)
+
+    def export_duplicate_state(self) -> list[dict]:
+        """Memoria combinada de avisos vistos (ruta imagen/PDF + ruta texto)
+        para persistir y pasar como `duplicate_state` en la próxima corrida."""
+        return (
+            self._runner.export_duplicate_state()
+            + self._text_validator.export_duplicate_state()
+        )
 
     def run_directory(self, input_dir: str, country: str,
                       extensions: Optional[set[str]] = None) -> dict:
@@ -64,6 +85,7 @@ class BatchRunner:
                     country=country,
                     document_id=doc.get("id", ""),
                     source_type=doc.get("source_type", "text"),
+                    validator=self._text_validator,
                 )
                 results.append(result)
                 self.logger.log_from_result(result)
@@ -81,11 +103,10 @@ class BatchRunner:
                     country=country,
                     document_id=file_path.stem,
                     source_type="text",
+                    validator=self._text_validator,
                 )
             else:
-                from backend.app.v2.pipeline.runner import PipelineRunner
-                runner = PipelineRunner()
-                result = runner.process(
+                result = self._runner.process(
                     [str(file_path)],
                     country,
                     document_id=file_path.stem,

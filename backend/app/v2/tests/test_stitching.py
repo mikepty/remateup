@@ -59,6 +59,41 @@ class TestStitching(unittest.TestCase):
         self.assertEqual(bottom_blocks[0].y0, 100 + 3000)
         self.assertEqual(bottom_blocks[1].y0, 300 + 3000)
 
+    def test_stitch_adjusts_bottom_word_y(self):
+        self.bottom.blocks[0].words = [
+            OCRWord(text="BASE", confidence=0.9, x0=100, y0=100,
+                    x1=180, y1=140, page=2)
+        ]
+        result = self.stitcher.stitch(self.top, self.bottom)
+        self.assertEqual(result.bottom_blocks[0].words[0].y0, 3100)
+        self.assertEqual(result.bottom_blocks[0].words[0].y1, 3140)
+
+    def test_dense_full_width_block_reconstructed_as_columns(self):
+        words = []
+        for col in range(4):
+            for row in range(60):
+                words.append(OCRWord(
+                    text="AVISO" if row == 0 else f"W{row}",
+                    confidence=0.9,
+                    x0=50 + col * 450,
+                    y0=100 + row * 20,
+                    x1=130 + col * 450,
+                    y1=115 + row * 20,
+                    page=1,
+                ))
+        dense_top = OCRPage(
+            page_number=1, width=2000, height=1500,
+            blocks=[OCRBlock(
+                text="mixed", confidence=0.9, block_type="text",
+                x0=20, y0=100, x1=1980, y1=1400, page=1, words=words,
+            )],
+        )
+        result = self.stitcher.stitch(
+            dense_top, OCRPage(page_number=2, width=2000, height=1500)
+        )
+        self.assertEqual(len(result.blocks), 4)
+        self.assertEqual([block.column_index for block in result.blocks], [0, 1, 2, 3])
+
     def test_stitch_preserves_x(self):
         result = self.stitcher.stitch(self.top, self.bottom)
         bottom_blocks = result.bottom_blocks
@@ -118,6 +153,23 @@ class TestStitching(unittest.TestCase):
         self.assertEqual(len(stitched), 2)
         self.assertEqual(stitched[0].total_blocks, 4)
         self.assertEqual(stitched[1].total_blocks, 2)
+        # Problema #7: a la segunda página le falta la mitad inferior
+        # (imagen impar sin pareja) -- debe quedar marcada como parcial.
+        self.assertFalse(stitched[0].is_partial)
+        self.assertTrue(stitched[1].is_partial)
+        self.assertEqual(stitched[1].missing_side, "bottom")
+
+    def test_stitch_complete_page_not_partial(self):
+        result = self.stitcher.stitch(self.top, self.bottom)
+        self.assertFalse(result.is_partial)
+        self.assertEqual(result.missing_side, "")
+
+    def test_stitch_missing_top_detected(self):
+        from backend.app.v2.ocr.models import OCRPage
+        empty_top = OCRPage(page_number=0, width=0, height=0)
+        result = self.stitcher.stitch(empty_top, self.bottom)
+        self.assertTrue(result.is_partial)
+        self.assertEqual(result.missing_side, "top")
 
     def test_stitch_height_calculation(self):
         result = self.stitcher.stitch(self.top, self.bottom)
