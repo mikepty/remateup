@@ -59,6 +59,12 @@ _PATTERNS = {
         r"POR\s+([A-ZÑÁÉÍÓÚ0-9.,& ]{3,80}?)(?:,|\s+EN\s+CONTRA|\n)",
         # Fallback: "DEMANDANTE: X"
         r"DEMANDANTE\s*[:\s]*([A-ZÁÉÍÓÚ\s,\.]+?)(?:\n|\s{2,}|$)",
+        # Interleaved: "promovido por ... contra" en líneas mezcladas
+        r"(?:PROMOVIDO|PROPUESTO)\s+POR\s+([A-ZÑÁÉÍÓÚ0-9.,& ]{3,80}?)(?:\n|$)",
+        # "EL SUSCRITO ... promovido por X" (caso ALGUACIL primero)
+        r"(?:ALGUACIL|ALGUIL)\s+.*?POR\s+([A-ZÑÁÉÍÓÚ0-9.,& ]{3,60}?)(?:,|\n|\.\s)",
+        # "X, SA, Y ..." después de "contra" en texto interleavado
+        r"(?:CONTRA|EN\s+CONTRA)\s+(?:DE?\s*)?[A-ZÑÁÉÍÓÚ\s,\.]{5,80}?\s+POR\s+EL\s+BANCO\s+([A-ZÑÁÉÍÓÚ0-9.,& ]{3,60}?)(?:,|\n)",
     ],
     "demandado": [
         # "contra YAHELYS ITZEL JIMENEZ CASTILLO"
@@ -67,6 +73,8 @@ _PATTERNS = {
         r"(?:PARTE\s+)?DEMANDADA?\s+([A-ZÑÁÉÍÓÚ0-9.,& ]{3,80}?)(?:,|\n|\.\s|CED|$)",
         # Fallback: "DEMANDADO: X"
         r"DEMANDADO\s*[:\s]*([A-ZÁÉÍÓÚ\s,\.]+?)(?:\n|\s{2,}|$)",
+        # Interleaved: "contra X" al final de línea
+        r"(?:EN\s+)?CONTRA\s+(?:DE?\s*)?([A-ZÑÁÉÍÓÚ\s,\.]{3,80}?)(?:\n|$)",
     ],
     "hora": [
         r"HORA\s*[:\s]*(\d{1,2}[:\.]\d{2}\s*(?:A\.?M\.?|P\.?M\.?)?)",
@@ -76,10 +84,14 @@ _PATTERNS = {
     "lugar": [
         r"JUZGADO\s+(?:DEL?\s+)?(?:PRIMER?|SEGUNDO|TERCER|CUARTO|QUINTO|DECIMO)\s+DE\s+CIRCUITO",
         r"JUZGADO\s+(?:DEL?\s+)?(?:PRIMER?|SEGUNDO|TERCER|CUARTO|QUINTO|DECIMO)\s+DE\s+INSOLVENCIA",
+        r"JUZGADO\s+(?:DEL?\s+)?(?:PRIMER?|SEGUNDO|TERCER|CUARTO|QUINTO|DECIMO)\s+DE\s+LO(?:S)?\s+(?:CIVIL|PENAL|FAMILIA)",
         r"CORTE\s+SUPREMA",
         r"PLAZA\s+DE\s+ARMAS",
         r"TRIBUNAL\s+(?:DE\s+)?(?:CIRCUITO|FAMILIA|CIVIL)",
         r"SECRETAR[IÍ]A\s+DE\s+TRIBUNAL",
+        # Interleaved: "JUZGADO... CIRCUITO... JUDICIAL" en líneas mezcladas
+        r"JUZGADO\s+\w+\s+DE\s+CIRCUITO\s+DE\s+INSOLVENCIA",
+        r"JUZGADO\s+\w+\s+DE\s+CIRCUITO\s+JUDICIAL",
     ],
     "superficie": [
         r"SUPERFICIE\s*[:\s]*([\d,\.]+)\s*(?:M2|M²|METROS?)",

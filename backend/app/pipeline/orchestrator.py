@@ -524,6 +524,29 @@ def procesar_documento_v2(db: Session, documento: Documento) -> list[Aviso]:
                      f"{len(avisos_out)} aviso(s) extraído(s) con pipeline V2",
                      documento_id=documento.id)
 
+    # === PRE-FETCH: enriquecer TODOS los avisos con IA en PARALELO ===
+    # Antes, cada aviso se enriquecía secuencialmente (3 avisos × ~100s = 300s).
+    # Ahora lanzamos todas las llamadas IA en paralelo y recogemos resultados.
+    enriquecidos_cache: dict[int, dict] = {}
+    try:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        def _enrich_one(idx_aviso: tuple) -> tuple[int, dict]:
+            i, av = idx_aviso
+            txt = av.get("text") or ""
+            return i, extraction.enriquecer_aviso_con_ia(txt, documento.pais)
+
+        with ThreadPoolExecutor(max_workers=min(len(avisos_out), 3)) as pool:
+            futures = {pool.submit(_enrich_one, (i, av)): i
+                       for i, av in enumerate(avisos_out)}
+            for fut in as_completed(futures):
+                try:
+                    i, res = fut.result()
+                    enriquecidos_cache[i] = res
+                except Exception as e:
+                    print(f"[orchestrator] enrich IA falló para item {futures[fut]}: {e}")
+    except Exception as e:
+        print(f"[orchestrator] parallel enrich falló, usando fallback secuencial: {e}")
+
     avisos_creados = []
     sigla_periodico = _sigla_periodico_de_archivo(documento.nombre_archivo)
     texto_ocr = documento.texto_ocr or ""
@@ -630,7 +653,9 @@ def procesar_documento_v2(db: Session, documento: Documento) -> list[Aviso]:
             # (descripcion del builder V2, descripcion_completa del texto ya
             # limpiado, prevista de reglas).
             texto_aviso = aviso_out.get("text") or ""
-            enriquecido = extraction.enriquecer_aviso_con_ia(texto_aviso, documento.pais)
+            enriquecido = enriquecidos_cache.get(idx)
+            if enriquecido is None:
+                enriquecido = extraction.enriquecer_aviso_con_ia(texto_aviso, documento.pais)
             if enriquecido.get("descripcion_completa"):
                 datos["descripcion_completa"] = enriquecido["descripcion_completa"]
                 confianza_campos["descripcion_completa"] = 0.85

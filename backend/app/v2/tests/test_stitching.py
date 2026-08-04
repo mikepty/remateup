@@ -70,29 +70,32 @@ class TestStitching(unittest.TestCase):
 
     def test_dense_full_width_block_reconstructed_as_columns(self):
         words = []
-        for col in range(4):
+        n_cols = 6
+        page_w = 3000
+        col_width = page_w // n_cols
+        for col in range(n_cols):
             for row in range(60):
                 words.append(OCRWord(
                     text="AVISO" if row == 0 else f"W{row}",
                     confidence=0.9,
-                    x0=50 + col * 450,
+                    x0=50 + col * col_width,
                     y0=100 + row * 20,
-                    x1=130 + col * 450,
+                    x1=130 + col * col_width,
                     y1=115 + row * 20,
                     page=1,
                 ))
         dense_top = OCRPage(
-            page_number=1, width=2000, height=1500,
+            page_number=1, width=page_w, height=1500,
             blocks=[OCRBlock(
                 text="mixed", confidence=0.9, block_type="text",
-                x0=20, y0=100, x1=1980, y1=1400, page=1, words=words,
+                x0=20, y0=100, x1=page_w - 20, y1=1400, page=1, words=words,
             )],
         )
         result = self.stitcher.stitch(
-            dense_top, OCRPage(page_number=2, width=2000, height=1500)
+            dense_top, OCRPage(page_number=2, width=page_w, height=1500)
         )
-        self.assertEqual(len(result.blocks), 4)
-        self.assertEqual([block.column_index for block in result.blocks], [0, 1, 2, 3])
+        self.assertEqual(len(result.blocks), n_cols)
+        self.assertEqual([block.column_index for block in result.blocks], list(range(n_cols)))
 
     def test_stitch_preserves_x(self):
         result = self.stitcher.stitch(self.top, self.bottom)
