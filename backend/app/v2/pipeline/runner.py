@@ -321,6 +321,10 @@ class PipelineRunner:
                 per_aviso_fields.append(single_aviso_fields)
             s.output = all_fields
             s.per_aviso_fields = per_aviso_fields
+            s.per_aviso_texts = [
+                _aviso_text(a)
+                for a in (stages["continuity"].output or [])
+            ]
             s.status = "success"
             s.metrics = {"fields_found": len(all_fields), "avisos_processed": len(per_aviso_fields)}
         except Exception as e:
@@ -527,8 +531,13 @@ class PipelineRunner:
         parser_stage = stages.get("parser")
         avisos_out = []
         if parser_stage and parser_stage.status == "success":
+            aviso_texts = getattr(parser_stage, "per_aviso_texts", []) or []
             for i, fields in enumerate(getattr(parser_stage, "per_aviso_fields", []) or []):
-                avisos_out.append({"aviso_index": i, "fields": fields})
+                avisos_out.append({
+                    "aviso_index": i,
+                    "fields": fields,
+                    "text": aviso_texts[i] if i < len(aviso_texts) else "",
+                })
 
         return {
             "document": {

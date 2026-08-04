@@ -34,6 +34,9 @@ _PATTERNS = {
         # para lo que el sistema llama precio_base (ver informe de gap: 6/6
         # casos perdidos usaban esta etiqueta y ninguna variante de "BASE").
         r"AVAL[UÚ]O\s+COMERCIAL\s*[:\s]*" + _CURRENCY + r"\s*([\d,\.]+)",
+        # "servirá de base ... la suma de CUARENTA Y SIETE MIL ... ( B/.47,927.27 )"
+        r"servir[aá]?\s+de\s+base[^)]{0,400}?\(\s*[B8]?\s*/\s*\.?\s*([\d.,\s]+)\s*\)",
+        r"(?:SIRVE\s+DE\s+BASE|BASE\s+DEL\s+REMATE)[^)]{0,400}?\(\s*[B8]?\s*/\s*\.?\s*([\d.,\s]+)\s*\)",
         r"BASE\s*[:\s]*" + _CURRENCY + r"\s*([\d,\.]+)",
         r"BASE\s*[:\s]*([\d,\.]+)",
         r"VALOR\s+(?:DEL\s+)?(?:REMATE|BASE|AVAL[UÚ]O(?:\s+COMERCIAL)?)\s*[:\s]*" + _CURRENCY + r"\s*([\d,\.]+)",

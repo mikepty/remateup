@@ -248,7 +248,351 @@ def _buscar_base_en_ocr(datos: dict, texto_ocr: str) -> float | None:
     return None
 
 
-def procesar_documento(db: Session, documento: Documento) -> list[Aviso]:
+_MAPEO_CAMPOS_V2_A_BD = {
+    "expediente": "expediente",
+    "finca": "finca_matr",
+    "precio_base": "base",
+    "fecha_remate": "fecha",
+    "demandante": "demandante",
+    "demandado": "demandado",
+    "descripcion": "descripcion",
+    "descripcion_completa": "descripcion_completa",
+    "hora": "hora",
+    "lugar": "lugar",
+    "proceso": "proceso",
+    "categoria": "categoria",
+    "provincia": "provincia",
+    "plano": "plano",
+    "superficie": "superficie",
+    "prevista": "prevista",
+    "lote_casa": "lote_casa",
+}
+
+_CAMPOS_V2_DESCARTABLES = {None, "", "null", ".", "..", "NOT_FOUND"}
+
+
+def _base_valida(base) -> bool:
+    """La base del remate debe ser un número de monto válido (>0 y <1e9).
+    Rechaza valores basura que el OCR/parser puede colar ('.', '0', '1931'
+    sin contexto, etc.)."""
+    num = _normalizar_monto_pa(base)
+    if num is None:
+        return False
+    # Una base de remate real en Panamá nunca es < 100 B/. (rechaza '10'
+    # capturado del pie de página, etc.).
+    return 100 <= num < 1_000_000_000
+
+
+def _normalizar_monto_pa(valor) -> float | None:
+    """Interpreta un monto panameño del OCR. La Estrella imprime B/.47,927.27
+    pero el OCR suele colar puntos en vez de comas: 'B / 47.92727',
+    '104.355.34', '1.200.00'. Reglas:
+      - si hay coma y un único punto -> coma es miles, punto es decimal.
+      - si hay más de un punto -> el último es decimal, los demás miles.
+      - si hay un único punto con 3 dígitos decimales y entero de 1-3 dígitos
+        (p.ej. '47.92727', '1.200') se trata como miles+decimales pegados.
+      - el punto final de frase se tolera.
+    """
+    if valor in (None, "", "null", "."):
+        return None
+    s = str(valor).strip().replace(" ", "").replace("$", "").replace("B/", "").replace("B/.", "")
+    s = s.rstrip(".")
+    if not s:
+        return None
+    # Quitar la moneda B/. si quedó pegada al número
+    import re as _re
+    s = _re.sub(r"^[B8]/?\.?", "", s)
+    if not _re.match(r"^[\d.,]+$", s):
+        return None
+    try:
+        if "," in s and "." in s:
+            # '47,927.27' -> 47927.27 ; '1,200.00' -> 1200.0
+            if s.rindex(".") > s.rindex(","):
+                entero = s.replace(",", "")
+                return float(entero)
+            entero = s.replace(".", "").replace(",", ".")
+            return float(entero)
+        if s.count(".") > 1:
+            # '104.355.34' -> 104355.34 (último punto es decimal)
+            partes = s.split(".")
+            entero = "".join(partes[:-1])
+            dec = partes[-1]
+            return float(entero + "." + dec)
+        if "," in s:
+            return float(s.replace(",", ""))
+        if "." in s:
+            entero, dec = s.split(".")
+            if len(dec) <= 2:
+                # decimal real: '1529.03' -> 1529.03, '10.0' -> 10.0
+                return float(s)
+            if len(entero) <= 2 and len(dec) > 2:
+                # OCR pegó miles+centavos: '47.92727' -> 47927.27
+                digitos = s.replace(".", "")
+                if len(digitos) >= 6:
+                    glued = float(digitos[:-2] + "." + digitos[-2:])
+                    if glued >= 100:
+                        return glued
+            # miles sin decimales: '1.200' -> 1200.0
+            return float(s.replace(".", ""))
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _buscar_base_v2_en_texto(texto: str) -> float | None:
+    """Rescate determinista de la base del remate desde el texto OCR de un
+    aviso (pipeline V2). Busca la mención 'base del remate' o 'servirá de
+    base' seguida del monto, que suele venir entre paréntesis:
+        '... servirá de base la suma de ... ( B/.47,927.27 )'
+        '... SIRVE DE BASE DEL REMATE ... la suma de CUARENTA Y SIETE MIL
+         NOVECIENTOS VEINTISIETE BALBOAS ... ( B / 47.92727 )'
+    Devuelve el monto ya normalizado, o None si no encuentra ninguno válido.
+    """
+    if not texto:
+        return None
+    patrones = [
+        # mención de base seguida (hasta ~500 car.) de un monto entre paréntesis
+        r"(?:SIRVE\s+DE\s+BASE|BASE\s+DEL\s+REMATE|servir[aá]?\s+de\s+base)[^()]{0,500}?\(\s*[B8]?\s*/\s*\.?\s*([\d][\d.,]*)\s*\)",
+        # mención de base + 'la suma de' + monto con moneda
+        r"(?:SIRVE\s+DE\s+BASE|BASE\s+DEL\s+REMATE|servir[aá]?\s+de\s+base)[^()]{0,500}?la\s+suma\s+de\s+[^()]{0,200}?([B8]?\s*/\s*\.?\s*[\d][\d.,]*)",
+    ]
+    for patron in patrones:
+        m = re.search(patron, texto, re.IGNORECASE | re.DOTALL)
+        if m:
+            monto = _normalizar_monto_pa(m.group(1))
+            if monto is not None:
+                return monto
+    # Fallback: el aviso mezcla columnas y el monto queda lejos de la mención
+    # 'base'. Buscar cualquier monto con moneda B/. (p.ej. '( B / . 104.355.34 )')
+    # y quedarnos con el mayor (la base de remate es el valor más alto).
+    mejores = []
+    for m in re.finditer(
+        r"\(\s*[B8]?\s*/\s*[^)\d]{0,60}?([\d][\d.,]*)\s*\)",
+        texto, re.IGNORECASE | re.DOTALL):
+        monto = _normalizar_monto_pa(m.group(1))
+        if monto is not None and monto >= 100:
+            mejores.append(monto)
+    if mejores:
+        return max(mejores)
+    return None
+
+
+def _normalizar_fecha_remate(v) -> str | None:
+    """Convierte fecha textual de Panamá ('25 de mayo de 2026') a YYYY-MM-DD."""
+    if not v:
+        return None
+    s = str(v).strip()
+    m = re.match(r"^(\d{1,2})\s+de\s+([a-záéíóúñ]+)\s+de\s+(\d{4})$", s, re.IGNORECASE)
+    if m:
+        dia, mes, anio = int(m.group(1)), m.group(2).lower(), int(m.group(3))
+        num_mes = {
+            "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5,
+            "junio": 6, "julio": 7, "agosto": 8, "septiembre": 9, "octubre": 10,
+            "noviembre": 11, "diciembre": 12,
+        }.get(mes)
+        if num_mes:
+            return f"{anio:04d}-{num_mes:02d}-{dia:02d}"
+    return None
+
+
+def _v2_result_to_datos(aviso_out: dict, pais: int) -> tuple[dict, dict]:
+    """Convierte el output del PipelineRunner V2 (por aviso) al formato de
+    datos/confianza del pipeline de producción (modelo Aviso)."""
+    fields = aviso_out.get("fields") or {}
+    datos: dict = {}
+    confianza: dict = {}
+    for campo_v2, campo_bd in _MAPEO_CAMPOS_V2_A_BD.items():
+        entry = fields.get(campo_v2)
+        if not entry:
+            continue
+        valor = entry.get("value") if isinstance(entry, dict) else entry
+        if valor in _CAMPOS_V2_DESCARTABLES:
+            continue
+        conf = entry.get("confidence", 0.0) if isinstance(entry, dict) else 0.0
+        if campo_bd == "fecha":
+            norm = _normalizar_fecha_remate(valor)
+            if norm:
+                datos[campo_bd] = norm
+                confianza[campo_bd] = conf
+        elif campo_bd == "base":
+            num = _normalizar_monto_pa(valor)
+            if num is not None:
+                datos[campo_bd] = str(num)
+                confianza[campo_bd] = conf
+        else:
+            datos[campo_bd] = str(valor)
+            confianza[campo_bd] = conf
+    datos["pais"] = pais
+    return datos, confianza
+
+
+def procesar_documento_v2(db: Session, documento: Documento) -> list[Aviso]:
+    """Procesa un documento de Panamá con el pipeline V2 (Vision OCR +
+    segmentación de columnas + parser determinista), el que detecta los
+    avisos reales que el pipeline de IA (Claude) pierde. Reutiliza las
+    reglas de negocio/validación/confianza del pipeline de producción para
+    generar los Aviso en BD con el mismo formato."""
+    from ..v2.pipeline.runner import PipelineRunner
+
+    audit.registrar(db, "orchestrator", "inicio_procesamiento_v2",
+                     f"Procesando {documento.nombre_archivo} con pipeline V2",
+                     documento_id=documento.id)
+
+    documento.estado = "procesando"
+    db.commit()
+
+    rutas = [documento.ruta_archivo]
+    if documento.rutas_adicionales_json:
+        rutas.extend(json.loads(documento.rutas_adicionales_json))
+
+    try:
+        runner = PipelineRunner()
+        resultado = runner.process(
+            file_paths=rutas,
+            country="PA",
+            document_id=str(documento.id),
+            source_type="upload",
+        )
+    except Exception as e:
+        documento.estado = "error"
+        db.commit()
+        audit.registrar(db, "orchestrator", "error_v2", str(e)[:500],
+                        documento_id=documento.id)
+        raise
+
+    # Guardar el texto OCR crudo (fuente para verificar/aprender) desde la
+    # salida del pipeline V2. El runner expone el OCR por página en su stage;
+    # aquí se reconstruye el texto concatenado best-effort.
+    try:
+        ocr_pages = (resultado.get("stages") or {}).get("ocr", {}).get("output")
+        if isinstance(ocr_pages, dict):
+            textos = []
+            for ocr_doc in ocr_pages.values():
+                for page in getattr(ocr_doc, "pages", []):
+                    txt = getattr(page, "full_text", None) or getattr(page, "text", "")
+                    if txt:
+                        textos.append(str(txt))
+            if textos:
+                documento.texto_ocr = "\n".join(textos)[:300000]
+                db.commit()
+    except Exception:
+        db.rollback()
+
+    avisos_out = (resultado.get("final_json") or {}).get("avisos") or []
+    if not avisos_out:
+        # Fallback al pipeline de IA (comportamiento anterior) si el V2 no
+        # detectó nada.
+        audit.registrar(db, "orchestrator", "v2_sin_avisos",
+                        "Pipeline V2 no detectó avisos; usando pipeline de IA",
+                        documento_id=documento.id)
+        return procesar_documento_ia(db, documento, rutas)
+
+    audit.registrar(db, "orchestrator", "extraccion_completa_v2",
+                     f"{len(avisos_out)} aviso(s) extraído(s) con pipeline V2",
+                     documento_id=documento.id)
+
+    avisos_creados = []
+    sigla_periodico = _sigla_periodico_de_archivo(documento.nombre_archivo)
+    for idx, aviso_out in enumerate(avisos_out):
+        try:
+            datos, confianza_campos = _v2_result_to_datos(aviso_out, documento.pais)
+            datos["_sigla_periodico"] = sigla_periodico
+
+            # Rescate determinista de la base desde el TEXTO del propio aviso:
+            # el parser regex a veces no la asocia (el OCR la imprime como
+            # "( B / 47.92727 )" con puntos en vez de comas), pero el texto
+            # completo del aviso SÍ la trae junto a "base del remate".
+            if not _base_valida(datos.get("base")):
+                texto_aviso = aviso_out.get("text") or ""
+                if texto_aviso:
+                    base_rescatada = _buscar_base_v2_en_texto(texto_aviso)
+                    if base_rescatada:
+                        datos["base"] = str(base_rescatada)
+                        confianza_campos["base"] = 0.8
+                        audit.registrar(
+                            db, "orchestrator", "base_rescatada_v2",
+                            f"Item {idx}: base {base_rescatada} recuperada del texto del aviso",
+                            documento_id=documento.id)
+
+            datos = business_rules.aplicar_reglas(datos)
+
+            # Filtro de falsos positivos: sin base no es aviso de remate real.
+            if not _base_valida(datos.get("base")):
+                audit.registrar(
+                    db, "orchestrator", "descartado_sin_base",
+                    f"Item {idx}: exp={datos.get('expediente')!r} sin base -> "
+                    f"descartado (posible falso positivo o aviso cortado)",
+                    documento_id=documento.id)
+                db.commit()
+                continue
+
+            faltantes = validation.campos_faltantes(datos)
+            resultado_validacion = validation.evaluar_duplicado_o_republicacion(db, datos)
+            discrepancia = datos.get("_discrepancia_valores", False)
+            fianza_asumida = datos.get("_fianza_asumida_por_regla", False)
+            decision = confidence.decidir(
+                confianza_campos, faltantes, resultado_validacion,
+                discrepancia, fianza_asumida)
+            audit.registrar(db, "confidence", decision["decision"],
+                            decision["motivo"], documento_id=documento.id)
+
+            aviso_reemplazado_id = resultado_validacion.get("aviso_a_reemplazar_id")
+            if aviso_reemplazado_id:
+                anterior = db.query(Aviso).get(aviso_reemplazado_id)
+                if anterior:
+                    anterior.estado = "reemplazado_por_republicacion"
+                    db.commit()
+
+            campos_aviso = {}
+            for k, v in datos.items():
+                if not k.startswith("_") and hasattr(Aviso, k):
+                    campos_aviso[k] = v
+
+            aviso = Aviso(
+                documento_id=documento.id,
+                **campos_aviso,
+                confianza_promedio=decision["confianza_promedio"],
+                campos_confianza_json=json.dumps(confianza_campos),
+                campos_faltantes_json=json.dumps(faltantes),
+                discrepancia_valores=discrepancia,
+                detalle_discrepancia_json=json.dumps(datos.get("_detalle_discrepancia_valores", [])),
+                fianza_asumida_por_regla=datos.get("_fianza_asumida_por_regla", False),
+                tipo_validacion=resultado_validacion["tipo"],
+                aviso_original_id=aviso_reemplazado_id,
+                estado=decision["decision"],
+            )
+            db.add(aviso)
+            db.commit()
+            db.refresh(aviso)
+
+            if decision["decision"] == "auto_aprobado":
+                try:
+                    subir_a_plataforma(aviso)
+                    aviso.estado = "subido"
+                    db.commit()
+                except Exception as e:
+                    aviso.estado = "error"
+                    db.commit()
+
+            avisos_creados.append(aviso)
+        except Exception as e:
+            audit.registrar(db, "orchestrator", "error_aviso_v2",
+                            f"Item {idx}: {str(e)[:500]}", documento_id=documento.id)
+            db.commit()
+            continue
+
+    documento.estado = "completado"
+    db.commit()
+    audit.registrar(db, "orchestrator", "fin_procesamiento",
+                     f"{len(avisos_creados)} aviso(s) procesado(s) (V2)",
+                     documento_id=documento.id)
+
+    return avisos_creados
+
+
+def procesar_documento_ia(db: Session, documento: Documento, rutas: list[str]) -> list[Aviso]:
+    """El pipeline de IA original (Vision OCR -> Claude estructura). Se usa
+    como fallback si el pipeline V2 no detecta avisos, o para Colombia."""
     audit.registrar(db, "orchestrator", "inicio_procesamiento",
                      f"Procesando {documento.nombre_archivo}", documento_id=documento.id)
 
@@ -256,9 +600,6 @@ def procesar_documento(db: Session, documento: Documento) -> list[Aviso]:
     db.commit()
 
     try:
-        rutas = [documento.ruta_archivo]
-        if documento.rutas_adicionales_json:
-            rutas.extend(json.loads(documento.rutas_adicionales_json))
         salida_ocr = {}
         resultados = extraction.extraer(rutas, documento.pais, salida_ocr=salida_ocr)
         # Guardar el texto OCR en el documento (fuente para verificar/aprender)
@@ -292,8 +633,7 @@ def procesar_documento(db: Session, documento: Documento) -> list[Aviso]:
                     f"Item {idx}: {', '.join(campos_recuperados)}",
                     documento_id=documento.id)
 
-            # Respaldos deterministas desde el texto OCR (la IA a veces no
-            # asocia la cabecera del diario ni el monto si quedaron lejos):
+            # Respaldos deterministas desde el texto OCR
             if texto_ocr:
                 if not item["datos"].get("periodico") and not item["datos"].get("fecha_prensa"):
                     cabecera = _cabecera_periodico_desde_ocr(texto_ocr)
@@ -303,7 +643,6 @@ def procesar_documento(db: Session, documento: Documento) -> list[Aviso]:
                     pagina = _pagina_prensa_desde_ocr(texto_ocr)
                     if pagina:
                         item["datos"]["pagina_prensa"] = pagina
-                # Recuperar fianza/minimo porcentaje del OCR si la IA no los encontró
                 fm_ocr = _buscar_fianza_minimo_en_ocr(item["datos"], texto_ocr, documento.pais)
                 if fm_ocr.get("fianza_porcentaje") and not item["datos"].get("fianza_porcentaje"):
                     item["datos"]["fianza_porcentaje"] = fm_ocr["fianza_porcentaje"]
@@ -318,12 +657,7 @@ def procesar_documento(db: Session, documento: Documento) -> list[Aviso]:
             datos = business_rules.aplicar_reglas(item["datos"])
             confianza_campos = item["confianza"]
 
-            # Filtro de falsos positivos: un AVISO DE REMATE real SIEMPRE tiene
-            # base/avalúo. Los avisos sin base son menciones internas del texto
-            # ("DERECHO DE PROPIEDAD DE UN AVISO DE REMATE EXP. No. X"), avisos
-            # de páginas vecinas que asoman cortados en la foto, o fragmentos
-            # de edictos/negocios mal clasificados. No se crean (el cliente los
-            # rechazaba uno a uno en el panel).
+            # Filtro de falsos positivos
             base_aviso = datos.get("base")
             if base_aviso in (None, "", "null"):
                 audit.registrar(
@@ -396,3 +730,15 @@ def procesar_documento(db: Session, documento: Documento) -> list[Aviso]:
                      f"{len(avisos_creados)} aviso(s) procesado(s)", documento_id=documento.id)
 
     return avisos_creados
+
+
+def procesar_documento(db: Session, documento: Documento) -> list[Aviso]:
+    """Punto de entrada. Para Panamá usa el pipeline V2 (que detecta los
+    avisos reales de la página); para Colombia usa el pipeline de IA."""
+    if documento.pais == "PA":
+        return procesar_documento_v2(db, documento)
+
+    rutas = [documento.ruta_archivo]
+    if documento.rutas_adicionales_json:
+        rutas.extend(json.loads(documento.rutas_adicionales_json))
+    return procesar_documento_ia(db, documento, rutas)
