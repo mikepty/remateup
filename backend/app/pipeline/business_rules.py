@@ -265,6 +265,19 @@ def _generar_prevista(datos: dict) -> str | None:
     if desc_completa:
         # Buscar patrones de ubicación común en Panamá
         import re
+        # Patrón más común en La Estrella: "UBICACION : Residencial X, lote Y"
+        # (el OCR a veces fragmenta "UBICA\nCION" con salto de línea)
+        match_ubic = re.search(
+            r'UBICA\s*CI[ÓO]?N?\s*[:\-]\s*([A-Za-zÁÉÍÓÚáéíóúÑñ0-9\s\.]+?)(?:,|\n)',
+            desc_completa, re.IGNORECASE | re.DOTALL
+        )
+        if match_ubic:
+            ubicacion = re.sub(r'\s+', ' ', match_ubic.group(1)).strip(" ,.:;-")
+            if len(ubicacion) > 3:
+                provincia = str(datos.get("provincia") or "").strip()
+                if provincia:
+                    return f"{ubicacion}, {provincia}"
+                return ubicacion
         # Patrón: Corr: XXX, Dist: XXX, Prov: XXX
         match_ubicacion = re.search(
             r'(?:Corr(?:egimiento)?|Distrito|Dist)[:\s]+([A-Za-zÁÉÍÓÚáéíóúÑñ\s]+?)(?:,|\.|\s+Dist|\s+Prov)',

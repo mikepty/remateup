@@ -10,11 +10,14 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-5-20250929")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 GOOGLE_VISION_API_KEY = os.environ.get("GOOGLE_VISION_API_KEY", "")
 # Motor para ESTRUCTURAR el texto OCR en avisos:
-#   "auto"   = Gemini primero (capa gratuita) y Claude de respaldo si falla
-#   "gemini" = solo intenta Gemini primero
-#   "claude" = Claude primero, Gemini de respaldo
+#   "auto"   = Gemini primero (capa gratuita), luego Groq, Claude de respaldo
+#   "gemini" = Gemini primero, Groq y Claude de respaldo
+#   "groq"   = Groq primero
+#   "claude" = Claude primero, Gemini y Groq de respaldo
 MOTOR_IA = os.environ.get("MOTOR_IA", "auto").strip().lower()
 
 # --- Base de datos ---

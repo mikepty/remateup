@@ -26,6 +26,66 @@ DESCRIPCION_KW = re.compile(
 # cortar "Financiera Familiar, S.A." en dos por el punto de "S." o de "A.".
 _ABBREV_TAIL = re.compile(r"^[A-ZÁÉÍÓÚÑ](\.[A-ZÁÉÍÓÚÑ])*$")
 
+# ---- Limpieza de texto OCR de la página de Judiciales (Panamá) ----
+# La página de La Estrella de Panamá incluye, junto a los avisos de remate,
+# elementos que NO pertenecen a ningún aviso y que el OCR mezcla con el
+# texto real:
+#   - Cabecera de columna "EDICTO 810" (fondo negro, tipografía grande):
+#     es la etiqueta de la sección de edictos del periódico, no un aviso de
+#     remate. Debe ignorarse (instrucción del cliente).
+#   - Banner publicitario "AVISO DE REMATE IC Publica tus judiciales
+#     llamando al 204-0000 204-0045 correo: judiciales@laestrella.com.pa
+#     10 estrellaonline laestrellaonline": además de ensuciar, su "AVISO DE
+#     REMATE" hace que el NoticeDetector lo tome como cabecera de aviso y
+#     se trague toda la columna en un solo aviso.
+#   - Teléfonos y correos promocionales sueltos ("204-0000 204-0045",
+#     "judiciales@laestrella.com.pa", "estrellaonline").
+_EDICTO_CABECERA_RE = re.compile(r"^EDICTO\s+\d+\s*$", re.IGNORECASE)
+_EDICTO_CABECERA_INLINE_RE = re.compile(r"\bEDICTO\s+\d+\b", re.IGNORECASE)
+# El banner completo del periódico (una sola línea en el OCR) se consume en
+# UNA pasada: "AVISO DE REMATE IC Publica tus judiciales llamando al
+# 204-0000 204-0045 correo : judiciales@laestrella.com.pa 10 estrellaonline
+# laestrellaonline". El tramo entre el teléfono y el cierre "la ... online"
+# se acota con {0,200}? para no comerse el texto del aviso que sigue.
+_BANNER_AVISO_IC_RE = re.compile(
+    r"AVISO\s+DE\s+REMATE\s+(?:IC|1C)\s+Publica\s+tus\s+judiciales\s+"
+    r"llamando\s+al\s+204-0000\s+204-0045.{0,200}?la\s*estrella\s*online",
+    re.IGNORECASE | re.DOTALL)
+_BANNER_PUBLICA_RE = re.compile(
+    r"Publica\s+tus\s+judiciales\s+llamando\s+al\s+204-0000\s+204-0045.{0,200}?",
+    re.IGNORECASE | re.DOTALL)
+_CORREO_JUDICIALES_RE = re.compile(r"judiciales@laestrella\.com\.pa", re.IGNORECASE)
+_LAESTRELLA_COM_RE = re.compile(r"laestrella\.com\.pa", re.IGNORECASE)
+_TEL_PROMO_RE = re.compile(r"\b204-0000\s+204-0045\b")
+_ESTRELLAONLINE_RE = re.compile(r"\b(?:10\s+)?la?\s*estrella\s*online\b", re.IGNORECASE)
+
+
+def limpiar_texto_aviso(texto: str) -> str:
+    """Quita del texto OCR de un aviso todo lo que no pertenece al aviso:
+    cabeceras de columna "EDICTO NNN" (fondo negro) y el banner publicitario
+    del periódico ("AVISO DE REMATE IC Publica tus judiciales...", teléfonos
+    y correo promocionales). Se aplica ANTES de construir descripciones o
+    de enviar el texto a la IA, para que ni el detector los tome como aviso
+    ni contaminen descripcion_completa/descripcion."""
+    if not texto:
+        return ""
+    lineas = texto.split("\n")
+    limpias = []
+    for ln in lineas:
+        if _EDICTO_CABECERA_RE.match(ln.strip()):
+            continue
+        limpias.append(ln)
+    t = "\n".join(limpias)
+    t = _BANNER_AVISO_IC_RE.sub("", t)
+    t = _BANNER_PUBLICA_RE.sub("", t)
+    t = _CORREO_JUDICIALES_RE.sub("", t)
+    t = _TEL_PROMO_RE.sub("", t)
+    t = _ESTRELLAONLINE_RE.sub("", t)
+    t = _EDICTO_CABECERA_INLINE_RE.sub("", t)
+    t = re.sub(r"[ \t]{2,}", " ", t)
+    t = re.sub(r"\n\s*\n+", "\n", t)
+    return t.strip()
+
 
 def _looks_like_abbreviation(word: str) -> bool:
     if not word:

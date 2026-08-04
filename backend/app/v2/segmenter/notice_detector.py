@@ -24,6 +24,32 @@ _REMATE_HEADERS = re.compile(
     re.IGNORECASE,
 )
 
+# En Panamá los avisos de remate se publican como "EDICTO EMPLAZATORIO Nº..."
+# (sin la palabra "remate" en la cabecera). Cada edicto es un bloque propio:
+# se usa como frontera de agrupación para NO mezclar dos avisos en uno, y el
+# filtro _is_remate_body decide cuáles grupos son remates reales (los
+# edictos de tutela/divorcio/emplazatorios simples quedan fuera).
+_EDICTO_EMPLAZATORIO_SPLIT = re.compile(
+    r"(?:^|\n)EDICTO\s+EMPLAZATORIO",
+    re.IGNORECASE,
+)
+
+# Publicidad/cabeceras del periódico que NO son avisos de remate y no deben
+# marcar el inicio de un aviso ni agrupar el resto de la columna:
+#   - Banner "AVISO DE REMATE IC Publica tus judiciales llamando al
+#     204-0000 204-0045 correo: judiciales@laestrella.com.pa ..." (contiene
+#     "AVISO DE REMATE" pero es publicidad del periódico).
+#   - Cabecera de columna "EDICTO 810" (fondo negro, grande).
+#   - Pie/rodapié promocional ("estrellaonline", teléfonos/correos).
+_FURNITURE_RE = re.compile(
+    r"Publica\s+tus\s+judiciales"
+    r"|judiciales@laestrella\.com\.pa"
+    r"|204-0000"
+    r"|estrellaonline"
+    r"|^EDICTO\s+\d+\s*$",
+    re.IGNORECASE,
+)
+
 _REMATE_BASE = re.compile(
     r"(?:BASE\s+DEL\s+REMATE|BASE\s+PARA\s*EL\s+REMATE|"
     r"SERVIR[ÁA]?\s+DE\s+BASE.{0,80}?REMATE)",
@@ -74,8 +100,17 @@ class NoticeDetector:
 
         return avisos
 
+    def _es_furniture(self, block) -> bool:
+        """Bloques que son publicidad/cabeceras del periódico, no contenido
+        de aviso: banner "AVISO DE REMATE IC Publica tus judiciales...",
+        cabecera de columna "EDICTO 810", rodapié "estrellaonline"."""
+        text = getattr(block, "text", "") or ""
+        return bool(_FURNITURE_RE.search(text))
+
     def _find_header(self, blocks: list) -> str:
         for b in blocks:
+            if self._es_furniture(b):
+                continue
             text = getattr(b, "text", "") or ""
             match = _REMATE_HEADERS.search(text.strip())
             if match:
@@ -83,7 +118,7 @@ class NoticeDetector:
         return ""
 
     def _is_remate_body(self, blocks: list) -> bool:
-        text = "\n".join((getattr(block, "text", "") or "") for block in blocks)
+        text = "\n".join((getattr(block, "text", "") or "") for block in blocks if not self._es_furniture(block))
         return bool(
             _REMATE_BASE.search(text)
             and _REMATE_POSTURA.search(text)
@@ -95,8 +130,10 @@ class NoticeDetector:
         current: list = []
 
         for b in blocks:
+            if self._es_furniture(b):
+                continue
             text = getattr(b, "text", "") or ""
-            if _REMATE_HEADERS.search(text.strip()):
+            if _REMATE_HEADERS.search(text.strip()) or _EDICTO_EMPLAZATORIO_SPLIT.search(text.strip()):
                 if current:
                     groups.append(current)
                 current = [b]

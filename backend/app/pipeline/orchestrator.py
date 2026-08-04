@@ -19,16 +19,26 @@ def _sigla_periodico_de_archivo(nombre_archivo: str) -> str | None:
     return m.group(1) if m else None
 
 
-# Cabecera del periódico impresa en la hoja, ej:
-# "La Prensa Panamá, jueves 9 de julio de 2026" o "La Prensa, Panamá, 9 de julio de 2026".
-# El modelo a veces no la lee como tal (quedó a mitad del texto OCR): aquí se
-# detecta de forma determinista para completar periodico/fecha_prensa y poder
-# generar el codigo_prensa (regla del cliente: INICIAL+DDMESAAAA+PÁGINA).
+# Cabecera del periódico impresa en la hoja. La Estrella imprime:
+#   "La Estrella, Panamá, miércoles 8 de julio de 2026"   (nombre primero)
+# o bien:
+#   "MIÉRCOLES 8 DE JULIO DE 2026 LA ESTRELLA DE PANAMA"  (fecha primero,
+#    nombre al final). El modelo a veces no la lee como tal (quedó a mitad del
+#    texto OCR): aquí se detecta de forma determinista para completar
+#    periodico/fecha_prensa y poder generar el codigo_prensa (regla del
+#    cliente: INICIAL+DDMESAAAA+PÁGINA).
 _RE_CABECERA_PERIODICO = re.compile(
-    r"(La Prensa|La Estrella|Metro Libre)\s*,?\s*Panam[áa]?\s*,?\s*"
+    r"(?:"
+    r"(?P<p1>La Prensa|La Estrella|Metro Libre)\s*,?\s*Panam[áa]?\s*,?\s*"
     r"(?:lunes|martes|mi[ée]rcoles|jueves|viernes|s[áa]bado|domingo)\s+"
-    r"(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|"
-    r"septiembre|octubre|noviembre|diciembre)\s+de\s+(\d{4})",
+    r"(?P<d1>\d{1,2})\s+de\s+(?P<m1>enero|febrero|marzo|abril|mayo|junio|julio|agosto|"
+    r"septiembre|octubre|noviembre|diciembre)\s+de\s+(?P<a1>\d{4})"
+    r"|"
+    r"(?:lunes|martes|mi[ée]rcoles|jueves|viernes|s[áa]bado|domingo)\s+"
+    r"(?P<d2>\d{1,2})\s+de\s+(?P<m2>enero|febrero|marzo|abril|mayo|junio|julio|agosto|"
+    r"septiembre|octubre|noviembre|diciembre)\s+de\s+(?P<a2>\d{4})\s*"
+    r"(?P<p2>La Prensa|La Estrella|Metro Libre)"
+    r")",
     re.IGNORECASE,
 )
 _MESES_A_NUMERO = {
@@ -40,24 +50,33 @@ _MESES_A_NUMERO = {
 
 def _cabecera_periodico_desde_ocr(texto_ocr: str) -> tuple[str, str] | None:
     """Devuelve (periodico, fecha_prensa YYYY-MM-DD) si la cabecera del diario
-    está impresa en el texto OCR."""
+    está impresa en el texto OCR (nombre primero O fecha primero)."""
     if not texto_ocr:
         return None
     m = _RE_CABECERA_PERIODICO.search(texto_ocr)
     if not m:
         return None
-    dia, mes, anio = int(m.group(2)), _MESES_A_NUMERO[m.group(3).lower()], m.group(4)
-    return m.group(1), f"{anio}-{mes:02d}-{dia:02d}"
+    if m.group("p1"):
+        periodico, dia, mes, anio = m.group("p1"), m.group("d1"), m.group("m1"), m.group("a1")
+    else:
+        periodico, dia, mes, anio = m.group("p2"), m.group("d2"), m.group("m2"), m.group("a2")
+    return periodico, f"{anio}-{_MESES_A_NUMERO[mes.lower()]:02d}-{int(dia):02d}"
 
 
 def _pagina_prensa_desde_ocr(texto_ocr: str) -> str | None:
     """Código de página impreso en la esquina superior de la hoja (ej. "6B").
-    Suele aparecer en las primeras líneas del texto OCR de la foto superior."""
+    Suele aparecer en las primeras líneas del texto OCR de la foto superior.
+    El OCR a veces lee "1C" como "IC": se normaliza la I inicial a 1."""
     if not texto_ocr:
         return None
     inicio = texto_ocr[:2000]
-    m = re.search(r"(?m)^\s*(\d{1,2}[A-Za-z]{1,2})\s*$", inicio)
-    return m.group(1).upper() if m else None
+    m = re.search(r"(?m)^\s*([0-9I][A-Za-z]{1,2})\s*$", inicio)
+    if not m:
+        return None
+    pag = m.group(1).upper()
+    if pag.startswith("I") and pag[1:].isalpha():
+        pag = "1" + pag[1:]
+    return pag
 
 
 def _ventana_aviso_ocr(texto_ocr: str, pos: int, antes: int = 2000, despues: int = 4000) -> str:
@@ -470,11 +489,11 @@ def procesar_documento_v2(db: Session, documento: Documento) -> list[Aviso]:
         raise
 
     # Guardar el texto OCR crudo (fuente para verificar/aprender) desde la
-    # salida del pipeline V2. El runner expone el OCR por página en su stage;
-    # aquí se reconstruye el texto concatenado best-effort.
+    # salida del pipeline V2. El runner expone el OCR concatenado en
+    # resultado["ocr_text"].
     try:
         ocr_pages = (resultado.get("stages") or {}).get("ocr", {}).get("output")
-        if isinstance(ocr_pages, dict):
+        if ocr_pages:
             textos = []
             for ocr_doc in ocr_pages.values():
                 for page in getattr(ocr_doc, "pages", []):
@@ -484,6 +503,10 @@ def procesar_documento_v2(db: Session, documento: Documento) -> list[Aviso]:
             if textos:
                 documento.texto_ocr = "\n".join(textos)[:300000]
                 db.commit()
+        ocr_text = (resultado.get("ocr_text") or "").strip()
+        if ocr_text and not documento.texto_ocr:
+            documento.texto_ocr = ocr_text[:300000]
+            db.commit()
     except Exception:
         db.rollback()
 
@@ -502,10 +525,48 @@ def procesar_documento_v2(db: Session, documento: Documento) -> list[Aviso]:
 
     avisos_creados = []
     sigla_periodico = _sigla_periodico_de_archivo(documento.nombre_archivo)
+    texto_ocr = documento.texto_ocr or ""
     for idx, aviso_out in enumerate(avisos_out):
         try:
             datos, confianza_campos = _v2_result_to_datos(aviso_out, documento.pais)
             datos["_sigla_periodico"] = sigla_periodico
+
+            # Completar campos vacíos desde la descripción completa (igual que
+            # el pipeline de IA): lote_casa, superficie, provincia, plano,
+            # codigo_ubicacion, etc. están en el texto largo del aviso.
+            try:
+                campos_recuperados = extractor_deterministico.completar_campos_vacios_desde_descripcion(
+                    datos, confianza_campos)
+                if campos_recuperados:
+                    audit.registrar(
+                        db, "orchestrator", "campos_recuperados_v2",
+                        f"Item {idx}: {', '.join(campos_recuperados)}",
+                        documento_id=documento.id)
+            except Exception as e:
+                print(f"[orchestrator] completar campos v2 falló: {e}")
+
+            # Cabecera del periódico (periodico/fecha_prensa/pagina_prensa):
+            # el V2 no la extrae, y sin ella aplicar_reglas no puede generar
+            # el codigo_prensa (INICIAL+DDMESAAAA+PÁGINA).
+            if texto_ocr:
+                if not datos.get("periodico") and not datos.get("fecha_prensa"):
+                    cabecera = _cabecera_periodico_desde_ocr(texto_ocr)
+                    if cabecera:
+                        datos["periodico"], datos["fecha_prensa"] = cabecera
+                if not datos.get("pagina_prensa"):
+                    pagina = _pagina_prensa_desde_ocr(texto_ocr)
+                    if pagina:
+                        datos["pagina_prensa"] = pagina
+
+            # Fianza/mínimo desde el texto OCR (el parser V2 no los extrae)
+            if texto_ocr:
+                fm_ocr = _buscar_fianza_minimo_en_ocr(datos, texto_ocr, documento.pais)
+                if fm_ocr.get("fianza_porcentaje") and not datos.get("fianza_porcentaje"):
+                    datos["fianza_porcentaje"] = fm_ocr["fianza_porcentaje"]
+                    confianza_campos["fianza_porcentaje"] = 0.9
+                if fm_ocr.get("minimo_porcentaje") and not datos.get("minimo_porcentaje"):
+                    datos["minimo_porcentaje"] = fm_ocr["minimo_porcentaje"]
+                    confianza_campos["minimo_porcentaje"] = 0.9
 
             # Rescate determinista de la base desde el TEXTO del propio aviso:
             # el parser regex a veces no la asocia (el OCR la imprime como
@@ -522,6 +583,36 @@ def procesar_documento_v2(db: Session, documento: Documento) -> list[Aviso]:
                             db, "orchestrator", "base_rescatada_v2",
                             f"Item {idx}: base {base_rescatada} recuperada del texto del aviso",
                             documento_id=documento.id)
+
+            # Descripción resumida + ubicación Maps + texto completo
+            # reconstruido con IA (estilo Colombia); si la IA no está
+            # disponible o falla, se conservan los respaldos deterministas
+            # (descripcion del builder V2, descripcion_completa del texto ya
+            # limpiado, prevista de reglas).
+            texto_aviso = aviso_out.get("text") or ""
+            enriquecido = extraction.enriquecer_aviso_con_ia(texto_aviso, documento.pais)
+            if enriquecido.get("descripcion_completa"):
+                datos["descripcion_completa"] = enriquecido["descripcion_completa"]
+                confianza_campos["descripcion_completa"] = 0.85
+                audit.registrar(
+                    db, "orchestrator", "texto_aviso_ia",
+                    f"Item {idx}: texto del aviso reconstruido con IA "
+                    "(columnas desenredadas)",
+                    documento_id=documento.id)
+            if enriquecido.get("descripcion"):
+                datos["descripcion"] = enriquecido["descripcion"]
+                confianza_campos["descripcion"] = 0.9
+                audit.registrar(
+                    db, "orchestrator", "descripcion_portada_ia",
+                    f"Item {idx}: descripción resumida generada con IA",
+                    documento_id=documento.id)
+            if enriquecido.get("prevista"):
+                datos["prevista"] = enriquecido["prevista"]
+                confianza_campos["prevista"] = 0.9
+                audit.registrar(
+                    db, "orchestrator", "prevista_ia",
+                    f"Item {idx}: ubicación para Maps generada con IA",
+                    documento_id=documento.id)
 
             datos = business_rules.aplicar_reglas(datos)
 

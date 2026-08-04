@@ -239,7 +239,7 @@ codigo_prensa: déjalo SIEMPRE null (se genera automáticamente a partir de peri
 Array JSON: [{{"datos": {{{campos_str}}}, "confianza": {{mismas claves, 0-1}}}}]{aprendizaje}"""
 
 
-def _llamar_claude(prompt_completo: str, intento: int = 0) -> str:
+def _llamar_claude(prompt_completo: str, intento: int = 0, system: str | None = None) -> str:
     """Llama a Claude (Anthropic) con un prompt de texto y devuelve el texto crudo."""
     import time
     import anthropic
@@ -250,7 +250,7 @@ def _llamar_claude(prompt_completo: str, intento: int = 0) -> str:
             model=CLAUDE_MODEL,
             max_tokens=16384,
             temperature=0,
-            system=SYSTEM_PROMPT,
+            system=system or SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt_completo}],
         )
         return "".join(block.text for block in response.content if block.type == "text")
@@ -261,11 +261,12 @@ def _llamar_claude(prompt_completo: str, intento: int = 0) -> str:
                 wait_time = 20 * (intento + 1)
                 print(f"[extraction] Claude rate limit. Reintento {intento+1}/3, espera {wait_time}s...")
                 time.sleep(wait_time)
-                return _llamar_claude(prompt_completo, intento + 1)
+                return _llamar_claude(prompt_completo, intento + 1, system=system)
         raise
 
 
-def _llamar_gemini(prompt_completo: str, intento: int = 0) -> str:
+def _llamar_gemini(prompt_completo: str, intento: int = 0, system: str | None = None,
+                   json_mode: bool = True) -> str:
     """Llama a Gemini (Google AI, capa gratuita) con el MISMO prompt y devuelve
     el texto crudo. requests ya es dependencia (lo usa ocr_vision)."""
     import time
@@ -274,20 +275,21 @@ def _llamar_gemini(prompt_completo: str, intento: int = 0) -> str:
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
     body = {
-        "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+        "systemInstruction": {"parts": [{"text": system or SYSTEM_PROMPT}]},
         "contents": [{"role": "user", "parts": [{"text": prompt_completo}]}],
         "generationConfig": {
             "temperature": 0,
             "maxOutputTokens": 16384,
-            "responseMimeType": "application/json",
         },
     }
+    if json_mode:
+        body["generationConfig"]["responseMimeType"] = "application/json"
     resp = requests.post(url, params={"key": GEMINI_API_KEY}, json=body, timeout=600)
     if resp.status_code in (429, 500, 503) and intento < 3:
         wait_time = 20 * (intento + 1)
         print(f"[extraction] Gemini {resp.status_code}. Reintento {intento+1}/3, espera {wait_time}s...")
         time.sleep(wait_time)
-        return _llamar_gemini(prompt_completo, intento + 1)
+        return _llamar_gemini(prompt_completo, intento + 1, system=system, json_mode=json_mode)
     resp.raise_for_status()
     data = resp.json()
     cand = (data.get("candidates") or [{}])[0]
@@ -298,26 +300,147 @@ def _llamar_gemini(prompt_completo: str, intento: int = 0) -> str:
     return text
 
 
-def _llamar_ia(prompt_completo: str) -> tuple[str, str]:
-    """Despacha al motor de IA según MOTOR_IA, con fallback automático al otro
-    si el primero falla (sin saldo, sin cuota, caído). Devuelve (texto, motor)."""
-    from ..config import ANTHROPIC_API_KEY as CK, GEMINI_API_KEY as GK, MOTOR_IA
+def _llamar_groq(prompt_completo: str, intento: int = 0, system: str | None = None) -> str:
+    """Llama a Groq (API compatible OpenAI) con el MISMO prompt y devuelve
+    el texto crudo. requests ya es dependencia (lo usa ocr_vision)."""
+    import time
+    import requests
+    from ..config import GROQ_API_KEY, GROQ_MODEL
 
-    orden = ["gemini", "claude"] if MOTOR_IA == "gemini" else ["claude", "gemini"]
-    disponibles = [m for m in orden if (GK if m == "gemini" else CK)]
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    body = {
+        "model": GROQ_MODEL,
+        "messages": [
+            {"role": "system", "content": system or SYSTEM_PROMPT},
+            {"role": "user", "content": prompt_completo},
+        ],
+        "temperature": 0,
+        "max_tokens": 16384,
+    }
+    resp = requests.post(url, headers=headers, json=body, timeout=600)
+    if resp.status_code in (429, 500, 503) and intento < 3:
+        wait_time = 20 * (intento + 1)
+        print(f"[extraction] Groq {resp.status_code}. Reintento {intento+1}/3, espera {wait_time}s...")
+        time.sleep(wait_time)
+        return _llamar_groq(prompt_completo, intento + 1, system=system)
+    resp.raise_for_status()
+    data = resp.json()
+    try:
+        text = (data["choices"][0]["message"] or {}).get("content", "")
+    except (KeyError, IndexError, TypeError):
+        text = ""
+    if not text.strip():
+        raise RuntimeError(f"Groq sin texto (respuesta: {str(data)[:300]})")
+    return text
+
+
+def _llamar_ia(prompt_completo: str, system: str | None = None,
+               json_mode: bool = True) -> tuple[str, str]:
+    """Despacha al motor de IA según MOTOR_IA, con fallback automático a los
+    otros si el primero falla (sin saldo, sin cuota, caído). Devuelve
+    (texto, motor)."""
+    from ..config import (ANTHROPIC_API_KEY as CK, GEMINI_API_KEY as GK,
+                          GROQ_API_KEY as GRK, MOTOR_IA)
+
+    preferido = MOTOR_IA if MOTOR_IA in ("gemini", "groq", "claude") else "gemini"
+    orden = [preferido] + [m for m in ("gemini", "groq", "claude") if m != preferido]
+    disponibles = [m for m in orden if (GK if m == "gemini" else (GRK if m == "groq" else CK))]
     if not disponibles:
-        raise RuntimeError("Ni GEMINI_API_KEY ni ANTHROPIC_API_KEY configuradas")
+        raise RuntimeError("Ni GEMINI_API_KEY ni GROQ_API_KEY ni ANTHROPIC_API_KEY configuradas")
 
     ultimo_error = None
     for motor in disponibles:
         try:
             if motor == "gemini":
-                return _llamar_gemini(prompt_completo), motor
-            return _llamar_claude(prompt_completo), motor
+                return _llamar_gemini(prompt_completo, system=system, json_mode=json_mode), motor
+            if motor == "groq":
+                return _llamar_groq(prompt_completo, system=system), motor
+            return _llamar_claude(prompt_completo, system=system), motor
         except Exception as e:
             print(f"[extraction] Motor {motor} falló: {str(e)[:200]}")
             ultimo_error = e
     raise ultimo_error
+
+
+_SYSTEM_ENRIQUECER_AVISO = (
+    "Eres un redactor judicial de Panamá. A partir del texto de un aviso de "
+    "remate inmobiliario (texto OCR con columnas de periódico posiblemente "
+    "mezcladas), devuelves TRES campos en JSON:\n\n"
+    "1. \"descripcion\": la DESCRIPCIÓN RESUMIDA DE PORTADA, máximo 30 palabras "
+    "(cuéntalas): tipo de bien (CASA/APARTAMENTO/TERRENO/LOCAL/PREDIO...) + "
+    "características principales relevantes + ubicación. NUNCA incluyas montos, "
+    "expedientes, fechas, nombres de jueces, secretarios, ni citas legales "
+    "(artículos, leyes, edictos). Escribe en español, con mayúscula inicial y "
+    "punto final. Ejemplo: 'Casa en Residencial Altos de Las Lomas, lote No. 64, "
+    "distrito de David, provincia de Chiriquí.'\n\n"
+    "2. \"prevista\": la UBICACIÓN LIMPIA del inmueble para pegar en Google Maps: "
+    "dirección/urbanización + corregimiento + distrito + provincia, separados por "
+    "coma (ej. \"Residencial Altos de Las Lomas, lote 64, David, Chiriquí\"). "
+    "Debe servir para localizar el bien en Google Maps. Si el aviso no da NINGÚN "
+    "dato de ubicación del bien, usa null.\n\n"
+    "3. \"descripcion_completa\": el TEXTO DEL AVISO RECONSTRUIDO en orden de "
+    "lectura natural. El OCR de periódico mezcla dos columnas adyacentes: las "
+    "palabras de cada columna quedan intercaladas. Tu trabajo es DESENREDAR esa "
+    "mezcla: separar las dos columnas y devolver el texto de cada una en orden, "
+    "con las palabras en el orden correcto, eliminando duplicados de palabras "
+    "rotas por el OCR (ej. 'EDICTO EDICTO', 'en en') y ruido de pie de página "
+    "(números de teléfono, correos promocionales, 'Publica tus judiciales', "
+    "etc.) SOLO si no son parte del aviso. CRÍTICO: NO inventes ni completes "
+    "palabras que no estén en el texto. Si una palabra está incompleta en el "
+    "OCR, déjala tal cual. Responde el texto completo reconstruido.\n\n"
+    "RESPONDE SOLO con el JSON: "
+    "{\"descripcion\": \"...\", \"prevista\": \"...\", \"descripcion_completa\": \"...\"}. "
+    "Sin texto adicional."
+)
+
+
+def enriquecer_aviso_con_ia(texto_aviso: str, pais: str = "PA") -> dict:
+    """Genera con IA la descripción resumida de portada, la ubicación para
+    Google Maps y el texto reconstruido (desenredando columnas mezcladas del
+    OCR) de un aviso, con el mismo estilo que las fichas de Colombia.
+    Devuelve {"descripcion": str|None, "prevista": str|None,
+    "descripcion_completa": str|None}; si la IA no está disponible o la
+    respuesta no es válida, los campos van en None (el llamador usa sus
+    respaldos deterministas por campo)."""
+    texto_aviso = (texto_aviso or "").strip()
+    if len(texto_aviso) < 60:
+        return {"descripcion": None, "prevista": None, "descripcion_completa": None}
+    prompt = (
+        f"Aviso de remate de {'Panamá' if pais == 'PA' else 'Colombia'}:\n\n"
+        f"=== TEXTO DEL AVISO ===\n{texto_aviso[:12000]}\n\n"
+        "Devuelve el JSON con la descripción resumida, la ubicación para Maps "
+        "y el texto completo reconstruido."
+    )
+    try:
+        text, motor = _llamar_ia(prompt, system=_SYSTEM_ENRIQUECER_AVISO, json_mode=True)
+    except Exception as e:
+        print(f"[extraction] Enriquecer aviso IA no disponible: {str(e)[:200]}")
+        return {"descripcion": None, "prevista": None, "descripcion_completa": None}
+    import json as _json
+    data = {}
+    try:
+        parsed = _parsear_json(text)
+        if isinstance(parsed, dict):
+            data = parsed
+        elif isinstance(parsed, list) and parsed and isinstance(parsed[0], dict):
+            data = parsed[0]
+    except Exception:
+        print(f"[extraction] Enriquecer aviso IA JSON inválido: {text[:200]}")
+        return {"descripcion": None, "prevista": None, "descripcion_completa": None}
+
+    salida = {"descripcion": None, "prevista": None, "descripcion_completa": None}
+    desc = str(data.get("descripcion") or "").strip().strip('"').strip("'").strip()
+    if desc and len(desc) >= 15 and len(desc.split()) <= 40:
+        if not desc.lower().startswith(("aviso", "remate", "edicto", "expediente")):
+            salida["descripcion"] = desc
+    prev = str(data.get("prevista") or "").strip().strip('"').strip("'").strip()
+    if prev and len(prev) >= 5 and len(prev) <= 200:
+        salida["prevista"] = prev
+    comp = str(data.get("descripcion_completa") or "").strip().strip('"').strip("'").strip()
+    if comp and len(comp) >= len(texto_aviso) * 0.5:
+        salida["descripcion_completa"] = comp
+    return salida
 
 
 def _estructurar_texto_ocr(texto_ocr: str, pais: str = "PA") -> list[dict]:

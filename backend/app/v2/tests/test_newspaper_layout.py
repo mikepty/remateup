@@ -151,6 +151,49 @@ class TestNoticeDetector(unittest.TestCase):
         avisos = self.detector.detect_avisos(blocks)
         self.assertEqual(len(avisos), 0)
 
+    def test_banner_publicitario_no_es_cabecera_de_aviso(self):
+        # El banner "AVISO DE REMATE IC Publica tus judiciales..." contiene
+        # "AVISO DE REMATE" pero es publicidad del periódico: no debe crear
+        # un aviso por sí mismo ni agrupar el resto de la columna.
+        blocks = [
+            DetectedBlock(text="AVISO DE REMATE IC Publica tus judiciales llamando al 204-0000 204-0045",
+                          bbox=BoundingBox(x0=100, y0=0, x1=500, y1=50)),
+        ]
+        avisos = self.detector.detect_avisos(blocks)
+        self.assertEqual(len(avisos), 0)
+
+    def test_edicto_emplazatorio_remate_separa_dos_avisos(self):
+        # En Panamá los remates se publican como "EDICTO EMPLAZATORIO Nº":
+        # cada uno debe ser un aviso separado, y un edicto que no es remate
+        # (tutela/divorcio) no debe detectarse.
+        blocks = [
+            DetectedBlock(text="EDICTO EMPLAZATORIO No. 853-26 N74459-26 RITA ... BASE DEL REMATE sirve de base ... posturas ... Certificado de Deposito",
+                          bbox=BoundingBox(x0=100, y0=0, x1=500, y1=200)),
+            DetectedBlock(text="EDICTO EMPLAZATORIO N994 Exp. 74468-26 KLEVER ... BASE DEL REMATE sirve de base ... posturas ... Certificado de Deposito",
+                          bbox=BoundingBox(x0=100, y0=300, x1=500, y1=500)),
+            DetectedBlock(text="EDICTO EMPLAZATORIO No. 751/686902026 Proceso de TUTELA ADULTO MAYOR",
+                          bbox=BoundingBox(x0=100, y0=600, x1=500, y1=700)),
+        ]
+        avisos = self.detector.detect_avisos(blocks)
+        self.assertEqual(len(avisos), 2)
+        textos = [a.sections[0].text for a in avisos if a.sections]
+        self.assertTrue(any("N74459-26" in t for t in textos))
+        self.assertTrue(any("74468-26" in t for t in textos))
+        self.assertTrue(all("TUTELA" not in t for t in textos))
+
+    def test_banner_no_contamina_texto_del_aviso(self):
+        blocks = [
+            DetectedBlock(text="AVISO DE REMATE IC Publica tus judiciales llamando al 204-0000 204-0045",
+                          bbox=BoundingBox(x0=100, y0=0, x1=500, y1=50)),
+            DetectedBlock(text="EDICTO EMPLAZATORIO No. 853-26 N74459-26 RITA ... BASE DEL REMATE sirve de base ... posturas ... Certificado de Deposito",
+                          bbox=BoundingBox(x0=100, y0=100, x1=500, y1=300)),
+        ]
+        avisos = self.detector.detect_avisos(blocks)
+        self.assertEqual(len(avisos), 1)
+        texto = avisos[0].sections[0].text if avisos[0].sections else ""
+        self.assertNotIn("Publica tus judiciales", texto)
+        self.assertIn("N74459-26", texto)
+
 
 class TestNewspaperLayout(unittest.TestCase):
     def setUp(self):

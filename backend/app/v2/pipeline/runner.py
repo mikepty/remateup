@@ -28,7 +28,9 @@ from backend.app.v2.validator.models import Decision
 from backend.app.v2.normalization.normalizer import FieldNormalizer
 from backend.app.v2.confidence.final import FinalConfidenceCalculator
 from backend.app.v2.certification.certifier import Certifier, CertDecision
-from backend.app.v2.description.builder import build_descripcion_completa, build_descripcion_portada
+from backend.app.v2.description.builder import (
+    build_descripcion_completa, build_descripcion_portada, limpiar_texto_aviso,
+)
 
 
 PIPELINE_VERSION = "7.0.0"
@@ -155,6 +157,16 @@ class PipelineRunner:
             s.output = ocr_docs
             s.status = "success"
             s.metrics = {"files_processed": len(ocr_docs)}
+            # Exponer el texto OCR crudo concatenado para que el orquestador lo
+            # guarde en documento.texto_ocr y pueda detectar la cabecera del
+            # periódico/fecha/página y completar fianza/mínimo desde el texto.
+            _raw_parts = []
+            for _doc in ocr_docs.values():
+                for _page in getattr(_doc, "pages", []):
+                    _t = _ocr_page_to_text(_page)
+                    if _t:
+                        _raw_parts.append(str(_t))
+            result["ocr_text"] = "\n".join(_raw_parts)
         except Exception as e:
             s.status = "error"
             s.errors.append(str(e))
@@ -278,9 +290,17 @@ class PipelineRunner:
             # encontrado gana) para no romper a quien ya lo consume; esto
             # es aditivo, no un reemplazo.
             per_aviso_fields: list[dict] = []
+            per_aviso_texts: list[str] = []
             continuity_output = stages["continuity"].output if stages["continuity"].status == "success" else []
             for aviso in continuity_output or []:
                 text = _aviso_text(aviso)
+                # Limpiar material del periódico que no es del aviso
+                # (cabecera "Edicto NNN" de columna, banner publicitario
+                # "AVISO DE REMATE IC Publica tus judiciales...") antes de
+                # parsear y de construir descripciones: si se dejan, ensucian
+                # descripcion_completa y confunden la segmentación.
+                text = limpiar_texto_aviso(text)
+                per_aviso_texts.append(text)
                 ctx = ParserContext(country=country.upper(), document_type="REMATE", text=text)
                 parse_results = wrapper.parse(ctx)
                 single_aviso_fields = {}
@@ -321,10 +341,7 @@ class PipelineRunner:
                 per_aviso_fields.append(single_aviso_fields)
             s.output = all_fields
             s.per_aviso_fields = per_aviso_fields
-            s.per_aviso_texts = [
-                _aviso_text(a)
-                for a in (stages["continuity"].output or [])
-            ]
+            s.per_aviso_texts = per_aviso_texts
             s.status = "success"
             s.metrics = {"fields_found": len(all_fields), "avisos_processed": len(per_aviso_fields)}
         except Exception as e:
@@ -344,7 +361,7 @@ class PipelineRunner:
                 rule_result = self._rule_engine.apply_rules(
                     field=fname,
                     text=" ".join(
-                        _aviso_text(a)
+                        limpiar_texto_aviso(_aviso_text(a))
                         for a in (stages["continuity"].output or [])
                     ),
                 )
@@ -373,7 +390,7 @@ class PipelineRunner:
         start = time.perf_counter()
         try:
             aviso_text = " ".join(
-                _aviso_text(a)
+                limpiar_texto_aviso(_aviso_text(a))
                 for a in (stages["continuity"].output or [])
             )
             v_result = self._validator.validate_notice(

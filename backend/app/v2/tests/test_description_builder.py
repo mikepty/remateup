@@ -3,6 +3,7 @@ import unittest
 from backend.app.v2.description.builder import (
     build_descripcion_completa,
     build_descripcion_portada,
+    limpiar_texto_aviso,
     _split_sentences,
 )
 
@@ -104,6 +105,48 @@ class TestDescripcionPortada(unittest.TestCase):
         text = "AVISO DE REMATE\nEXPEDIENTE N\u00b0 12345\nSe rematar\u00e1 finca urbana ubicada en Panam\u00e1."
         result = build_descripcion_portada(text, max_chars=200)
         self.assertIn("Se rematar\u00e1 finca urbana", result)
+
+
+class TestLimpiarTextoAviso(unittest.TestCase):
+    def test_empty(self):
+        self.assertEqual(limpiar_texto_aviso(""), "")
+        self.assertEqual(limpiar_texto_aviso(None), "")
+
+    def test_quita_cabecera_edicto_nnn(self):
+        texto = "Edicto 810\nEDICTO 810\nAVISO DE REMATE\nFINCA 12345"
+        result = limpiar_texto_aviso(texto)
+        self.assertNotIn("810", result)
+        self.assertIn("AVISO DE REMATE", result)
+        self.assertIn("FINCA 12345", result)
+
+    def test_quita_banner_publicitario(self):
+        texto = (
+            "AVISO DE REMATE IC Publica tus judiciales llamando al 204-0000 "
+            "204-0045 correo : judiciales@laestrella.com.pa 10 estrellaonline "
+            "laestrellaonline\nEDICTO EMPLAZATORIO No. 853-26"
+        )
+        result = limpiar_texto_aviso(texto)
+        self.assertNotIn("204-0000", result)
+        self.assertNotIn("judiciales@laestrella.com.pa", result)
+        self.assertNotIn("estrellaonline", result)
+        self.assertIn("EDICTO EMPLAZATORIO No. 853-26", result)
+
+    def test_conserva_texto_real_del_aviso(self):
+        texto = (
+            "Publica tus judiciales llamando al 204-0000 204-0045\n"
+            "EDICTO EMPLAZATORIO No. 853-26\n"
+            "GRAVAMENES DERECHOS REALES Y OTROS VIGENTES\n"
+            "HIPOTECA DE BIEN INMUEBLE"
+        )
+        result = limpiar_texto_aviso(texto)
+        self.assertIn("GRAVAMENES DERECHOS REALES Y OTROS VIGENTES", result)
+        self.assertIn("HIPOTECA DE BIEN INMUEBLE", result)
+
+    def test_no_toca_expediente_con_digitos(self):
+        texto = "EDICTO EMPLAZATORIO No. 853-26\nN74459-26\nB / 104,355.34"
+        result = limpiar_texto_aviso(texto)
+        self.assertIn("N74459-26", result)
+        self.assertIn("104,355.34", result)
 
 
 if __name__ == "__main__":
