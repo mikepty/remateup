@@ -432,6 +432,15 @@ def procesar_documento_v2(db: Session, documento: Documento) -> list[Aviso]:
     avisos reales que el pipeline de IA (Claude) pierde. Reutiliza las
     reglas de negocio/validación/confianza del pipeline de producción para
     generar los Aviso en BD con el mismo formato."""
+    # El pipeline V2 usa imports absolutos (backend.app.v2.*). En Render la
+    # app arranca con `cd backend && uvicorn app.main:app`, así que el paquete
+    # `backend` no está en sys.path: lo agregamos para que el import funcione.
+    import sys as _sys
+    import pathlib as _pathlib
+    _raiz = _pathlib.Path(__file__).resolve().parents[3]
+    if str(_raiz) not in _sys.path:
+        _sys.path.insert(0, str(_raiz))
+
     from ..v2.pipeline.runner import PipelineRunner
 
     audit.registrar(db, "orchestrator", "inicio_procesamiento_v2",
