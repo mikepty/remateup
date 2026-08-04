@@ -157,6 +157,94 @@ MAX_CHARS_DESCRIPCION_PORTADA = 350
 WINDOW_SIZE = 35
 
 
+def _extraer_descripcion_panama(texto: str) -> str:
+    """Extrae la descripción de portada en formato Panamá:
+    SIZE + PROPERTY_NAME, CORR: + CORREGIMIENTO, DIST: + DISTRITO, PROVINCIA.
+    Ejemplo: '271.61 M2, LAGO EMPERADOR, CORR: JUAN DEMOSTENES AROSEMENA, DIST: ARRAIJAN.'
+    Si no puede extraer todos los campos, devuelve None para que el caller use el fallback."""
+    if not texto:
+        return ""
+    t = re.sub(r"\s+", " ", texto).strip()
+
+    # 1. Extraer superficie
+    superficie = ""
+    m_sup = re.search(r"([\d,\.]+)\s*(?:M2|M²|METROS?\s*(?:CUADRADOS?)?|HEC(?:TAREAS?)?)", t, re.IGNORECASE)
+    if m_sup:
+        superficie = m_sup.group(0).strip()
+        superficie = re.sub(r"\s+", " ", superficie)
+    else:
+        m_sup2 = re.search(r"SUPERFICIE\s*[:\s]*([\d,\.]+)\s*(?:M2|M²)?", t, re.IGNORECASE)
+        if m_sup2:
+            superficie = m_sup2.group(1).strip() + " M2"
+
+    # 2. Extraer corregimiento / distrito / provincia
+    corr = ""
+    dist = ""
+    prov = ""
+    # Patrón: "CORR: XXX, DIST: XXX"
+    m_corr = re.search(r"CORR(?:EGIMIENTO)?\s*[:\s]+([A-ZÁÉÍÓÚÑ\s]+?)(?:,|\s+DIST)", t, re.IGNORECASE)
+    m_dist = re.search(r"DIST(?:RITO)?\s*[:\s]+([A-ZÁÉÍÓÚÑ\s]+?)(?:,|\s+PROV|$)", t, re.IGNORECASE)
+    if m_corr:
+        corr = m_corr.group(1).strip(" ,.:;-")
+    if m_dist:
+        dist = m_dist.group(1).strip(" ,.:;-")
+
+    # Patrón: "UBICACION: Residencial X, lote Y, Corr: Z, Dist: W, Prov: V"
+    if not corr:
+        m_ubic = re.search(r"UBICA\s*CI[ÓO]?N?\s*[:\-]\s*(.+?)(?:\n|$)", t, re.IGNORECASE | re.DOTALL)
+        if m_ubic:
+            ubic_text = m_ubic.group(1).strip()
+            m_c2 = re.search(r"CORR(?:EGIMIENTO)?\s*[:\s]+([A-ZÁÉÍÓÚÑ\s]+?)(?:,|\s+DIST)", ubic_text, re.IGNORECASE)
+            m_d2 = re.search(r"DIST(?:RITO)?\s*[:\s]+([A-ZÁÉÍÓÚÑ\s]+?)(?:,|\s+PROV|$)", ubic_text, re.IGNORECASE)
+            if m_c2:
+                corr = m_c2.group(1).strip(" ,.:;-")
+            if m_d2:
+                dist = m_d2.group(1).strip(" ,.:;-")
+
+    # Provincia
+    m_prov = re.search(r"PROVINCIA\s+DE\s+([A-ZÁÉÍÓÚÑ\s]+?)(?:,|\.|\n|$)", t, re.IGNORECASE)
+    if m_prov:
+        prov = m_prov.group(1).strip(" ,.:;-")
+    else:
+        prov_match = re.search(r"(CHIRIQUI|PANAMA|COLON|VERAGUAS|HERRERA|LOS\s+SANTOS|COCLE|BOCAS\s+DEL\s+TORO|PANAMA\s+OESTE)", t, re.IGNORECASE)
+        if prov_match:
+            prov = prov_match.group(1).strip()
+
+    # 3. Extraer nombre de propiedad (después de superficie, antes de CORR/UBIC)
+    nombre = ""
+    if superficie:
+        # Buscar después de la superficie
+        after_sup = t[t.find(superficie) + len(superficie):]
+        m_nombre = re.search(r",?\s*([A-ZÁÉÍÓÚÑ\s\.\-]+?)(?:,|\s+CORR|\s+UBICA|\s+DISTRITO|\s+PROVINCIA)", after_sup, re.IGNORECASE)
+        if m_nombre:
+            nombre = m_nombre.group(1).strip(" ,.:;-")
+            # Filtrar si es texto basura
+            if len(nombre) < 3 or nombre.upper() in ("DE", "DEL", "LA", "EL", "EN", "CON", "POR", "PARA"):
+                nombre = ""
+
+    # 4. Armar descripción en formato CORR/DIST
+    partes = []
+    if superficie:
+        partes.append(superficie)
+    if nombre:
+        partes.append(nombre)
+    if corr and dist:
+        partes.append(f"CORR: {corr}, DIST: {dist}")
+    elif corr:
+        partes.append(f"CORR: {corr}")
+    elif dist:
+        partes.append(f"DIST: {dist}")
+    if prov:
+        partes.append(prov)
+
+    if len(partes) >= 2:
+        result = ", ".join(partes)
+        if result and result[-1] not in ".!?":
+            result += "."
+        return result
+    return ""
+
+
 def _palabras_bloque(cadena: str) -> list[str]:
     return [w for w in cadena.replace("\n", " ").split() if w]
 
@@ -204,20 +292,20 @@ def _find_descripcion_bloque(texto_limpio: str) -> tuple[int, int, list[str]]:
 
 
 def build_descripcion_portada(aviso_text: str, max_chars: int = MAX_CHARS_DESCRIPCION_PORTADA) -> str:
-    """descripcion (corta, para portada): resumen extractivo determinista
-    (problemas #3 y #8 -- sin IA generativa).
+    """descripcion (corta, para portada): resumen extractivo determinista.
 
-    Contrato:
-    - Regla principal del cliente: máximo 30 palabras.
-    - Red de seguridad adicional: tope de caracteres (max_chars).
-    - Nunca corta una oración a la mitad cuando el texto corto cabe en
-      presupuesto (preferir texto largo pero completo).
-    - Se acumulan oraciones completas hasta el presupuesto; si la primera
-      oración ya lo supera se devuelve tal cual (mejor larga que incompleta).
-    - Los encabezados/etiquetas (AVISO DE REMATE, EXPEDIENTE Nº, etc.) se
-      saltan para tomar la primera oración con contenido comercial real.
-    - Si el texto supera 30 palabras, se recorta a 30 palabras como regla
-      principal, sin cortar palabras."""
+    Para Panamá intenta primero el formato CORR/DIST:
+    'SIZE + NOMBRE, CORR: + CORREGIMIENTO, DIST: + DISTRITO, PROVINCIA.'
+    Si no puede extraer todos los campos, usa el fallback extractivo original."""
+    if not aviso_text:
+        return ""
+
+    # Intentar formato Panamá CORR/DIST primero
+    desc_pa = _extraer_descripcion_panama(aviso_text)
+    if desc_pa and len(desc_pa.split()) <= MAX_WORDS_DESCRIPCION_PORTADA:
+        return desc_pa
+
+    # Fallback: lógica original extractiva
     clean = build_descripcion_completa(aviso_text)
     if not clean:
         return ""

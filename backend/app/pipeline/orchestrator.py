@@ -285,6 +285,7 @@ _MAPEO_CAMPOS_V2_A_BD = {
     "superficie": "superficie",
     "prevista": "prevista",
     "lote_casa": "lote_casa",
+    "email_observaciones": "email_observaciones",
 }
 
 _CAMPOS_V2_DESCARTABLES = {None, "", "null", ".", "..", "NOT_FOUND"}
@@ -544,6 +545,25 @@ def procesar_documento_v2(db: Session, documento: Documento) -> list[Aviso]:
                         documento_id=documento.id)
             except Exception as e:
                 print(f"[orchestrator] completar campos v2 falló: {e}")
+
+            # === APRENDIZAJE: aplicar correcciones anteriores del cliente ===
+            try:
+                from ..v2.learning.feedback_store import aplicar_aprendizaje
+                texto_aviso_aprend = aviso_out.get("text") or ""
+                pais_num = 1 if documento.pais == "PA" else 2
+                campos_corregidos = aplicar_aprendizaje(
+                    db, texto_aviso_aprend, pais_num, datos)
+                if campos_corregidos:
+                    for campo, valor in campos_corregidos.items():
+                        datos[campo] = valor
+                        confianza_campos[campo] = 0.85
+                    audit.registrar(
+                        db, "orchestrator", "aprendizaje_aplicado",
+                        f"Item {idx}: {', '.join(campos_corregidos.keys())} "
+                        f"rellenados por aprendizaje del cliente",
+                        documento_id=documento.id)
+            except Exception as e:
+                print(f"[orchestrator] aprendizaje v2 falló: {e}")
 
             # Cabecera del periódico (periodico/fecha_prensa/pagina_prensa):
             # el V2 no la extrae, y sin ella aplicar_reglas no puede generar

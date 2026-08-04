@@ -119,13 +119,20 @@ class TestPanamaRealPatterns(unittest.TestCase):
         LA FINCA N° 514582
         BASE: B/.85,000.00
         FECHA DE REMATE: 15 DE SEPTIEMBRE DE 2026
+        HORA: 9:30 A.M.
         DEMANDANTE: PROMOTORA STAGE TOWERS S.A.
         DEMANDADO: EINAR GONZALEZ BATISTA
         """
         ctx = ParserContext(country="PA", document_type="REMATE", text=text)
         results = self.parser.parse(ctx)
-        for field in self.parser.supported_fields:
+        campos_en_texto = [
+            "expediente", "finca", "precio_base", "fecha_remate",
+            "hora", "lugar", "demandante", "demandado",
+        ]
+        for field in campos_en_texto:
             self.assertTrue(results[field].is_found, f"{field} should be FOUND in full aviso")
+        for field in ("superficie", "provincia", "codigo_ubicacion", "categoria"):
+            self.assertTrue(results[field].is_not_found, f"{field} should NOT be FOUND")
 
     def test_edicto_emplazatorio_no_remate_fields(self):
         text = "EDICTO EMPLAZATORIO\nExpediente N° 77777-2026\nFINCA NO APLICA"

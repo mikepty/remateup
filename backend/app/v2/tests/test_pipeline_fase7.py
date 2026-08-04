@@ -507,7 +507,7 @@ class TestPartialOCRDetection(unittest.TestCase):
 
         partial_stitched = StitchedPage(
             page_number=1,
-            fragment_mapping=FragmentMapping(page_number=1, is_partial=True, missing_side="bottom"),
+            fragment_mapping=FragmentMapping(page_number=1, top_height=0, bottom_height=3000),
         )
         fake_avisos = [MagicMock(position="top")]
 
@@ -543,7 +543,7 @@ class TestPartialOCRDetection(unittest.TestCase):
 
         complete_stitched = StitchedPage(
             page_number=1,
-            fragment_mapping=FragmentMapping(page_number=1, is_partial=False),
+            fragment_mapping=FragmentMapping(page_number=1, top_height=3000, bottom_height=3000),
         )
         fake_avisos = [MagicMock(position="top")]
 

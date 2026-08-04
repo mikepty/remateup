@@ -20,7 +20,7 @@ from backend.app.v2.document.models import SectionType
 
 
 _REMATE_HEADERS = re.compile(
-    r"(?:^|\n)(AVISO\s+DE\s+REMATE|REMATE\s+JUDICIAL|SUBASTA\s+JUDICIAL)",
+    r"(AVISO\s+DE\s+REMATE|REMATE\s+JUDICIAL|SUBASTA\s+JUDICIAL)",
     re.IGNORECASE,
 )
 
@@ -30,7 +30,7 @@ _REMATE_HEADERS = re.compile(
 # filtro _is_remate_body decide cuáles grupos son remates reales (los
 # edictos de tutela/divorcio/emplazatorios simples quedan fuera).
 _EDICTO_EMPLAZATORIO_SPLIT = re.compile(
-    r"(?:^|\n)EDICTO\s+EMPLAZATORIO",
+    r"EDICTO\s+EMPLAZATORIO",
     re.IGNORECASE,
 )
 

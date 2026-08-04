@@ -317,6 +317,7 @@ def _llamar_groq(prompt_completo: str, intento: int = 0, system: str | None = No
         ],
         "temperature": 0,
         "max_tokens": 16384,
+        "response_format": {"type": "json_object"},
     }
     resp = requests.post(url, headers=headers, json=body, timeout=600)
     if resp.status_code in (429, 500, 503) and intento < 3:

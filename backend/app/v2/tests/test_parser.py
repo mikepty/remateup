@@ -169,14 +169,21 @@ class TestPanamaRemateParser(unittest.TestCase):
         FINCA 55555
         BASE B/.100,000.00
         FECHA DE REMATE: 30 DE SEPTIEMBRE DE 2026
+        HORA: 10:00 A.M.
         DEMANDANTE: CARLOS LOPEZ
         DEMANDADO: ANA MARTINEZ
         """
         ctx = ParserContext(country="PA", document_type="REMATE", text=text)
         results = self.parser.parse(ctx)
-        for field in self.parser.supported_fields:
+        campos_en_texto = [
+            "expediente", "finca", "precio_base", "fecha_remate",
+            "hora", "demandante", "demandado",
+        ]
+        for field in campos_en_texto:
             self.assertTrue(results[field].is_found, f"{field} should be FOUND")
             self.assertGreater(results[field].confidence, 0.5)
+        for field in ("superficie", "provincia", "lugar", "codigo_ubicacion", "categoria"):
+            self.assertTrue(results[field].is_not_found, f"{field} should NOT be FOUND")
 
     def test_low_confidence_partial_match(self):
         text = "AVISO DE REMATE\nFINCA 1 2 3 4\nBASE: CIEN MIL"

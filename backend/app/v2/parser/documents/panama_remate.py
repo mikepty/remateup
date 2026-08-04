@@ -11,8 +11,12 @@ _SECTION_LABELS = {
     "precio_base": [r"BASE", r"BASE\s+DEL\s+REMATE", r"PRECIO\s+BASE",
                      r"AVAL[UÚ]O\s+COMERCIAL"],
     "fecha_remate": [r"FECHA", r"FECHA\s+DE\s+REMATE", r"REMATE"],
-    "demandante": [r"DEMANDANTE", r"ACTOR", r"EJECUTANTE"],
-    "demandado": [r"DEMANDADO", r"DEUDOR", r"EJECUTADO"],
+    "hora": [r"HORA", r"HORA\s+DE\s+REMATE"],
+    "lugar": [r"JUZGADO", r"CORTE", r"PLAZA", r"TRIBUNAL"],
+    "superficie": [r"SUPERFICIE", r"SUPERF", r"M2", r"METROS"],
+    "provincia": [r"PROVINCIA", r"PROV"],
+    "codigo_ubicacion": [r"CODIGO\s+DE\s+UBICACION", r"UBICACION", r"COD\.?\s+UBIC"],
+    "categoria": [r"CATEGORIA", r"TIPO\s+DE\s+BIEN"],
 }
 
 # Símbolo de moneda antes del monto: en Panamá aparece como B/. (balboas) o
@@ -53,6 +57,38 @@ _PATTERNS = {
     "demandado": [
         r"DEMANDADO\s*[:\s]*([A-ZÁÉÍÓÚ\s,\.]+?)(?:\n|\s{2,}|$)",
         r"DEUDOR\s*[:\s]*([A-ZÁÉÍÓÚ\s,\.]+?)(?:\n|\s{2,}|$)",
+    ],
+    "hora": [
+        r"HORA\s*[:\s]*(\d{1,2}[:\.]\d{2}\s*(?:A\.?M\.?|P\.?M\.?)?)",
+        r"(?:a\s+las?\s+|hora\s*)(\d{1,2}[:\.]\d{2}\s*(?:A\.?M\.?|P\.?M\.?)?)",
+        r"(\d{1,2}[:\.]\d{2}\s*(?:A\.?M\.?|P\.?M\.?))",
+    ],
+    "lugar": [
+        r"JUZGADO\s+(?:DEL?\s+)?(?:PRIMER?|SEGUNDO|TERCER|CUARTO|QUINTO|DECIMO)\s+DE\s+CIRCUITO",
+        r"CORTE\s+SUPREMA",
+        r"PLAZA\s+DE\s+ARMAS",
+        r"TRIBUNAL\s+(?:DE\s+)?(?:CIRCUITO|FAMILIA|CIVIL)",
+    ],
+    "superficie": [
+        r"SUPERFICIE\s*[:\s]*([\d,\.]+)\s*(?:M2|M²|METROS?)",
+        r"([\d,\.]+)\s*(?:M2|M²|METROS?\s+CUADRADOS?)",
+        r"SUPERF(?:ICIE)?\s*[:\s]*([\d,\.]+)",
+    ],
+    "provincia": [
+        r"PROVINCIA\s+DE\s+([A-ZÁÉÍÓÚÑ\s]+?)(?:,|\.|\n)",
+        r"(?:CHIRIQUI|PANAMA|COLON|VERAGUAS|HERRERA|LOS\s+SANTOS|COCLE|BOCAS\s+DEL\s+TORO|PANAMA\s+OESTE)",
+    ],
+    "codigo_ubicacion": [
+        r"CODIGO\s+DE\s+UBICACION\s*[:\s]*(\d+)",
+        r"UBICACION\s*(?:DEL?\s+)?(?:CODIGO|COD)\s*[:\s]*(\d+)",
+        r"COD\.?\s+UBIC\.?\s*[:\s]*(\d+)",
+    ],
+    "categoria": [
+        r"CATEGORIA\s*[:\s]*(\d)",
+        r"TIPO\s+DE\s+BIEN\s*[:\s]*([A-ZÁÉÍÓÚÑ\s]+?)(?:\n|\s{2,}|$)",
+    ],
+    "email_observaciones": [
+        r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}",
     ],
 }
 
