@@ -172,7 +172,7 @@ def metricas(db: Session = Depends(get_db)):
 def _serializar_aviso(a: Aviso) -> dict:
     return {
         "id": a.id, "codigo": a.codigo, "estado": a.estado, "pais": a.pais,
-        "expediente": a.expediente,
+        "documento_id": a.documento_id, "expediente": a.expediente,
         "demandante": a.demandante, "demandado": a.demandado,
         "fecha": a.fecha, "hora": a.hora,
         "lugar": a.lugar, "proceso": a.proceso,

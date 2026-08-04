@@ -588,21 +588,41 @@ def procesar_documento_v2(db: Session, documento: Documento) -> list[Aviso]:
                     datos["minimo_porcentaje"] = fm_ocr["minimo_porcentaje"]
                     confianza_campos["minimo_porcentaje"] = 0.9
 
-            # Rescate determinista de la base desde el TEXTO del propio aviso:
-            # el parser regex a veces no la asocia (el OCR la imprime como
-            # "( B / 47.92727 )" con puntos en vez de comas), pero el texto
-            # completo del aviso SÍ la trae junto a "base del remate".
+            # Rescate determinista de la base del remate: primero busca en
+            # el texto del propio aviso (segmento de columna); si no la
+            # encuentra, busca en el texto OCR COMPLETO del documento usando
+            # el expediente como ancla — el monto de base suele estar en
+            # otra parte de la página que el segmento de columna no cubre.
             if not _base_valida(datos.get("base")):
                 texto_aviso = aviso_out.get("text") or ""
+                base_rescatada = None
                 if texto_aviso:
                     base_rescatada = _buscar_base_v2_en_texto(texto_aviso)
                     if base_rescatada:
-                        datos["base"] = str(base_rescatada)
-                        confianza_campos["base"] = 0.8
                         audit.registrar(
                             db, "orchestrator", "base_rescatada_v2",
                             f"Item {idx}: base {base_rescatada} recuperada del texto del aviso",
                             documento_id=documento.id)
+                if not base_rescatada and texto_ocr:
+                    # Buscar en el OCR completo usando el expediente como ancla
+                    base_rescatada = _buscar_base_en_ocr(datos, texto_ocr)
+                    if base_rescatada:
+                        audit.registrar(
+                            db, "orchestrator", "base_rescatada_ocr",
+                            f"Item {idx}: base {base_rescatada} recuperada del OCR completo (expediente)",
+                            documento_id=documento.id)
+                    else:
+                        # Sin expediente o no encontrado: buscar cualquier monto
+                        # B/. en todo el texto OCR (el mayor suele ser la base).
+                        base_rescatada = _buscar_base_v2_en_texto(texto_ocr)
+                        if base_rescatada:
+                            audit.registrar(
+                                db, "orchestrator", "base_rescatada_ocr_full",
+                                f"Item {idx}: base {base_rescatada} recuperada del OCR completo (global)",
+                                documento_id=documento.id)
+                if base_rescatada:
+                    datos["base"] = str(base_rescatada)
+                    confianza_campos["base"] = 0.8
 
             # Descripción resumida + ubicación Maps + texto completo
             # reconstruido con IA (estilo Colombia); si la IA no está
