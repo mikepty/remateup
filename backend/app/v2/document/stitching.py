@@ -155,6 +155,7 @@ class PageStitcher:
             )
             for bi, block in enumerate(top_page.blocks)
         ]
+        num_top = len(top_blocks)
         bottom_blocks = [
             StitchedBlock(
                 text=block.text,
@@ -167,7 +168,7 @@ class PageStitcher:
                 block_type=block.block_type,
                 source_position="bottom",
                 original_block_index=bi,
-                column_index=bi,
+                column_index=num_top + bi,
             )
             for bi, block in enumerate(bottom_page.blocks)
         ]

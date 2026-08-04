@@ -16,7 +16,8 @@ _SECTION_LABELS = {
     "superficie": [r"SUPERFICIE", r"SUPERF", r"M2", r"METROS"],
     "provincia": [r"PROVINCIA", r"PROV"],
     "codigo_ubicacion": [r"CODIGO\s+DE\s+UBICACION", r"UBICACION", r"COD\.?\s+UBIC"],
-    "categoria": [r"CATEGORIA", r"TIPO\s+DE\s+BIEN"],
+    "categoria": [r"CATEGORIA", r"TIPO\s+DE\s+BIEN", r"TIPO\s+DE\s+PROCESO"],
+    "proceso": [r"PROCESO", r"EJECUTIVO", r"MONITARIO", r"INSOLVENCIA"],
 }
 
 # Símbolo de moneda antes del monto: en Panamá aparece como B/. (balboas) o
@@ -26,19 +27,17 @@ _CURRENCY = r"(?:B[/\.]|\$)?"
 _PATTERNS = {
     "expediente": [
         r"(?:EXPEDIENTE|EXPE\.?|E\.?J\.?E\.?)\s*[:\s#N°]*\s*([\d]+[\d/\-\.\s]*)",
+        r"(?:Exp\.?\s*Electr\.?)\s*[:\s]*(\d+)",
     ],
     "finca": [
         r"FINCA\s+(?:N[°o]\.?\s*)?(\d[\d\s]*)",
         r"FINC\s*[:\s]*(\d[\d\s/]*)",
         r"(?:MATRICULA\s+)?(?:INMUEBLE|PROPIEDAD)\s*[:\s]*(\d[\d\s/-]*)",
+        r"LA\s+FINCA\s+N[°o]\.?\s*(\d[\d\s]*)",
     ],
     "precio_base": [
         r"BASE\s+DEL\s+REMATE\s*[:\s]*" + _CURRENCY + r"\s*([\d,\.]+)",
-        # AVALÚO COMERCIAL: la etiqueta real que usan los avisos de Panamá
-        # para lo que el sistema llama precio_base (ver informe de gap: 6/6
-        # casos perdidos usaban esta etiqueta y ninguna variante de "BASE").
         r"AVAL[UÚ]O\s+COMERCIAL\s*[:\s]*" + _CURRENCY + r"\s*([\d,\.]+)",
-        # "servirá de base ... la suma de CUARENTA Y SIETE MIL ... ( B/.47,927.27 )"
         r"servir[aá]?\s+de\s+base[^)]{0,400}?\(\s*[B8]?\s*/\s*\.?\s*([\d.,\s]+)\s*\)",
         r"(?:SIRVE\s+DE\s+BASE|BASE\s+DEL\s+REMATE)[^)]{0,400}?\(\s*[B8]?\s*/\s*\.?\s*([\d.,\s]+)\s*\)",
         r"BASE\s*[:\s]*" + _CURRENCY + r"\s*([\d,\.]+)",
@@ -51,12 +50,23 @@ _PATTERNS = {
         r"(\d{1,2}\s+DE\s+[A-ZÁÉÍÓÚ]+\s+DE\s+\d{4})",
     ],
     "demandante": [
+        # "promovido por BANCO GENERAL S.A., contra..."
+        r"(?:PROMOVIDO|INSTAURADO|PROPUESTO)\s+POR\s+"
+        r"([A-ZÑÁÉÍÓÚ0-9.,& ]{3,80}?)(?:,|\s+EN\s+CONTRA|\n|\.\s)",
+        # "A FAVOR DE BANCO..."
+        r"A\s+FAVOR\s+DE\s+([A-ZÑÁÉÍÓÚ0-9.,& ]{3,80}?)(?:,|\n|\.\s)",
+        # "POR BANCO GENERAL..."
+        r"POR\s+([A-ZÑÁÉÍÓÚ0-9.,& ]{3,80}?)(?:,|\s+EN\s+CONTRA|\n)",
+        # Fallback: "DEMANDANTE: X"
         r"DEMANDANTE\s*[:\s]*([A-ZÁÉÍÓÚ\s,\.]+?)(?:\n|\s{2,}|$)",
-        r"ACTOR\s*[:\s]*([A-ZÁÉÍÓÚ\s,\.]+?)(?:\n|\s{2,}|$)",
     ],
     "demandado": [
+        # "contra YAHELYS ITZEL JIMENEZ CASTILLO"
+        r"(?:EN\s+)?CONTRA\s+DE?\s*([A-ZÑÁÉÍÓÚ0-9.,& ]{3,80}?)(?:,|\n|\.\s|POR\s+EL|$)",
+        # "SIENDO LA PARTE DEMANDADA LUIS..."
+        r"(?:PARTE\s+)?DEMANDADA?\s+([A-ZÑÁÉÍÓÚ0-9.,& ]{3,80}?)(?:,|\n|\.\s|CED|$)",
+        # Fallback: "DEMANDADO: X"
         r"DEMANDADO\s*[:\s]*([A-ZÁÉÍÓÚ\s,\.]+?)(?:\n|\s{2,}|$)",
-        r"DEUDOR\s*[:\s]*([A-ZÁÉÍÓÚ\s,\.]+?)(?:\n|\s{2,}|$)",
     ],
     "hora": [
         r"HORA\s*[:\s]*(\d{1,2}[:\.]\d{2}\s*(?:A\.?M\.?|P\.?M\.?)?)",
@@ -65,9 +75,11 @@ _PATTERNS = {
     ],
     "lugar": [
         r"JUZGADO\s+(?:DEL?\s+)?(?:PRIMER?|SEGUNDO|TERCER|CUARTO|QUINTO|DECIMO)\s+DE\s+CIRCUITO",
+        r"JUZGADO\s+(?:DEL?\s+)?(?:PRIMER?|SEGUNDO|TERCER|CUARTO|QUINTO|DECIMO)\s+DE\s+INSOLVENCIA",
         r"CORTE\s+SUPREMA",
         r"PLAZA\s+DE\s+ARMAS",
         r"TRIBUNAL\s+(?:DE\s+)?(?:CIRCUITO|FAMILIA|CIVIL)",
+        r"SECRETAR[IÍ]A\s+DE\s+TRIBUNAL",
     ],
     "superficie": [
         r"SUPERFICIE\s*[:\s]*([\d,\.]+)\s*(?:M2|M²|METROS?)",
@@ -84,8 +96,23 @@ _PATTERNS = {
         r"COD\.?\s+UBIC\.?\s*[:\s]*(\d+)",
     ],
     "categoria": [
+        r"(?:UNA?\s+)?(?:VIVIENDA(?:\s+UNIFAMILIAR)?|CASA(?:\s+RESIDENCIAL)?|RESIDENCIA|QUINTA)\b",
+        r"APARTAMENTO|APTO\b",
+        r"TERRENO|LOTE\b",
+        r"\bVEH[IÍ]CULO\b|\bCARRO\b|\bMOTOCICLETA\b",
+        r"\bLOCAL\b|\bCOMERCIO\b|\bOFICINA\b",
+        r"CUOTAS?\s+PARTES?",
         r"CATEGORIA\s*[:\s]*(\d)",
-        r"TIPO\s+DE\s+BIEN\s*[:\s]*([A-ZÁÉÍÓÚÑ\s]+?)(?:\n|\s{2,}|$)",
+    ],
+    "proceso": [
+        # "dentro del Proceso Ejecutivo Hipotecario"
+        r"(?:DENTRO\s+DEL?\s+)?PROCESO\s+(EJECUTIVO(?:\s+HIPOTECARIO)?|MONITARIO(?:\s+HIPOTECARIO)?|INSOLVENCIA(?:\s+JUDICIAL)?|SUMARIO|EJECUTIVO\s+SIMPLE)",
+        # "TIPO DE PROCESO EJECUTIVA HIPOTECARIA"
+        r"TIPO\s+DE\s+PROCESO\s+(EJECUTIV[OA](?:\s+HIPOTECARIA?)?|MONITORIO(?:\s+HIPOTECARIO)?|INSOLVENCIA|SUMARIO)",
+        # "Proceso Ejecutivo" solo
+        r"PROCESO\s+(EJECUTIVO|MONITARIO|MONITORIO|INSOLVENCIA|SUMARIO)",
+        # Fallback: "EJECUTIVO HIPOTECARIO" sin la palabra "proceso"
+        r"(EJECUTIVO\s+HIPOTECARIO(?:\s+[A-Z]+)?)",
     ],
     "email_observaciones": [
         r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}",
@@ -128,6 +155,11 @@ class PanamaRemateParser(ParserInterface):
             if m:
                 raw = m.group(1).strip() if m.lastindex and m.group(1) else m.group(0).strip()
                 clean = re.sub(r'\s+', ' ', raw).strip()
+                # Normalizar campos especiales
+                if field_name == "categoria":
+                    clean = self._normalizar_categoria(clean, text)
+                elif field_name == "proceso":
+                    clean = self._normalizar_proceso(clean)
                 result.value = clean
                 result.confidence = 0.95
                 result.add_evidence(
@@ -138,3 +170,37 @@ class PanamaRemateParser(ParserInterface):
                 )
                 return True
         return False
+
+    @staticmethod
+    def _normalizar_categoria(match_text: str, full_text: str) -> str:
+        upper = (" " + match_text + " " + full_text).upper()
+        if "CUOTA" in upper and "PARTE" in upper:
+            return "MISCELANEO"
+        for kw, cat in (("APARTAMENTO", "APARTAMENTO"), ("APTO", "APARTAMENTO"),
+                        ("VEHICULO", "VEHICULO"), ("VEHÍCULO", "VEHICULO"),
+                        ("CARRO", "VEHICULO"), ("MOTOCICLETA", "VEHICULO"),
+                        ("CASA", "CASA"), ("VIVIENDA", "CASA"),
+                        ("RESIDENCIA", "CASA"), ("QUINTA", "CASA"),
+                        ("LOCAL", "MISCELANEO"), ("COMERCIO", "MISCELANEO"),
+                        ("OFICINA", "MISCELANEO")):
+            if (" " + kw + " ") in upper or upper.startswith(" " + kw + " ") or upper.endswith(" " + kw + " "):
+                return cat
+        if "TERRENO" in upper or "LOTE" in upper:
+            return "TERRENO"
+        return "TERRENO"
+
+    @staticmethod
+    def _normalizar_proceso(match_text: str) -> str:
+        """Normaliza el tipo de proceso judicial."""
+        upper = match_text.upper().strip()
+        if "INSOLVENCIA" in upper:
+            return "INSOLVENCIA"
+        if "MONITARIO" in upper or "MONITORIO" in upper:
+            return "MONITARIO"
+        if "EJECUTIVO" in upper and "HIPOTECARIO" in upper:
+            return "EJECUTIVO HIPOTECARIO"
+        if "EJECUTIVO" in upper:
+            return "EJECUTIVO"
+        if "SUMARIO" in upper:
+            return "SUMARIO"
+        return upper.title()
