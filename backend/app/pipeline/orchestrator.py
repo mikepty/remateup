@@ -422,7 +422,7 @@ def _v2_result_to_datos(aviso_out: dict, pais: int) -> tuple[dict, dict]:
         else:
             datos[campo_bd] = str(valor)
             confianza[campo_bd] = conf
-    datos["pais"] = pais
+    datos["pais"] = 1 if pais == "PA" else 2
     return datos, confianza
 
 
@@ -585,9 +585,15 @@ def procesar_documento_v2(db: Session, documento: Documento) -> list[Aviso]:
 
             avisos_creados.append(aviso)
         except Exception as e:
-            audit.registrar(db, "orchestrator", "error_aviso_v2",
-                            f"Item {idx}: {str(e)[:500]}", documento_id=documento.id)
-            db.commit()
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            try:
+                audit.registrar(db, "orchestrator", "error_aviso_v2",
+                                f"Item {idx}: {str(e)[:500]}", documento_id=documento.id)
+            except Exception:
+                db.rollback()
             continue
 
     documento.estado = "completado"

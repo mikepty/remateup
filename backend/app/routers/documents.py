@@ -62,10 +62,26 @@ async def subir_documento(
 
 def _procesar_en_background(documento_id: int):
     from ..database import SessionLocal
+    from ..pipeline import audit
     db = SessionLocal()
     try:
         documento = db.query(Documento).get(documento_id)
+        if not documento:
+            return
         procesar_documento(db, documento)
+    except Exception as e:
+        # Nunca dejar el documento colgado en 'procesando': si algo falló,
+        # marcarlo como error para que sea visible en el panel.
+        try:
+            db.rollback()
+            documento = db.query(Documento).get(documento_id)
+            if documento:
+                documento.estado = "error"
+                db.commit()
+                audit.registrar(db, "orchestrator", "error_procesamiento",
+                                str(e)[:500], documento_id=documento_id)
+        except Exception:
+            db.rollback()
     finally:
         db.close()
 
