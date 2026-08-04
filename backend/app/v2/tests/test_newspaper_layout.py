@@ -266,12 +266,54 @@ class TestNewspaperLayout(unittest.TestCase):
                           text="",
                           blocks=[])
         stitched = stitcher.stitch(top, bottom)
-        for block in stitched.blocks:
-            block.column_index = -1
         avisos = self.layout.segment(stitched)
         self.assertGreaterEqual(len(avisos), 1)
         self.assertTrue(any("REMATE" in a.header_text.upper() for a in avisos))
         self.assertGreater(stitched.height, 5000)
+
+    def test_two_avisos_same_column_detected(self):
+        """2 avisos en la misma columna vertical (uno arriba, otro abajo)
+        deben detectarse como 2 avisos separados."""
+        stitcher = PageStitcher()
+        top = OCRPage(page_number=1, width=2000, height=3000,
+                       text="",
+                       blocks=[
+            OCRBlock(text="AVISO DE REMATE FINCA 11111\nBASE DEL REMATE: 50000\nPOSTURA MINIMA",
+                     confidence=0.95, block_type="text",
+                     x0=50, y0=100, x1=450, y1=300, page=1),
+        ])
+        bottom = OCRPage(page_number=2, width=2000, height=3000,
+                          text="",
+                          blocks=[
+            OCRBlock(text="AVISO DE REMATE FINCA 22222\nBASE DEL REMATE: 80000\nPOSTURA MINIMA",
+                     confidence=0.95, block_type="text",
+                     x0=50, y0=100, x1=450, y1=300, page=2),
+        ])
+        stitched = stitcher.stitch(top, bottom)
+        avisos = self.layout.segment(stitched)
+        self.assertGreaterEqual(len(avisos), 2, "Debe detectar 2 avisos en la misma columna")
+        headers = [a.header_text.upper() for a in avisos]
+        self.assertTrue(any("REMATE" in h for h in headers))
+
+    def test_two_avisos_different_columns_detected(self):
+        """2 avisos en columnas diferentes (izq y der) deben detectarse."""
+        stitcher = PageStitcher()
+        top = OCRPage(page_number=1, width=2000, height=3000,
+                       text="",
+                       blocks=[
+            OCRBlock(text="AVISO DE REMATE FINCA 11111\nBASE DEL REMATE: 50000\nPOSTURA MINIMA",
+                     confidence=0.95, block_type="text",
+                     x0=50, y0=100, x1=450, y1=300, page=1),
+            OCRBlock(text="AVISO DE REMATE FINCA 22222\nBASE DEL REMATE: 80000\nPOSTURA MINIMA",
+                     confidence=0.95, block_type="text",
+                     x0=1000, y0=100, x1=1950, y1=300, page=1),
+        ])
+        bottom = OCRPage(page_number=2, width=2000, height=3000,
+                          text="",
+                          blocks=[])
+        stitched = stitcher.stitch(top, bottom)
+        avisos = self.layout.segment(stitched)
+        self.assertGreaterEqual(len(avisos), 2, "Debe detectar 2 avisos en columnas diferentes")
 
 
 if __name__ == "__main__":

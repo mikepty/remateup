@@ -142,6 +142,18 @@ class PageStitcher:
                 x1=w.x1, y1=w.y1 + y_offset, page=w.page, break_type=w.break_type,
             )
 
+        page_width = max(top_page.width, bottom_page.width)
+
+        def _col_index(block_x0, block_x1, pw):
+            """Asigna column_index (0-3) basado en la posición X central del bloque,
+            dividiendo el ancho de página en 4 columnas de periódico."""
+            if pw <= 0:
+                return 0
+            center = (block_x0 + block_x1) / 2
+            band = pw / self.NEWSPAPER_COLUMNS
+            idx = int(center / band)
+            return max(0, min(self.NEWSPAPER_COLUMNS - 1, idx))
+
         top_blocks = [
             StitchedBlock(
                 text=block.text,
@@ -151,11 +163,10 @@ class PageStitcher:
                 block_type=block.block_type,
                 source_position="top",
                 original_block_index=bi,
-                column_index=bi,
+                column_index=_col_index(block.x0, block.x1, page_width),
             )
             for bi, block in enumerate(top_page.blocks)
         ]
-        num_top = len(top_blocks)
         bottom_blocks = [
             StitchedBlock(
                 text=block.text,
@@ -168,7 +179,7 @@ class PageStitcher:
                 block_type=block.block_type,
                 source_position="bottom",
                 original_block_index=bi,
-                column_index=num_top + bi,
+                column_index=_col_index(block.x0, block.x1, page_width),
             )
             for bi, block in enumerate(bottom_page.blocks)
         ]
@@ -177,7 +188,6 @@ class PageStitcher:
 
         # Si las páginas vienen colapsadas en bloques densos (columnas del
         # periódico unidas), reconstruir las cuatro columnas.
-        page_width = max(top_page.width, bottom_page.width)
         dense_reconstruction = self._reconstruct_dense_columns(stitched_blocks, page_width)
         if dense_reconstruction:
             stitched_blocks = dense_reconstruction

@@ -11,6 +11,8 @@ Transforms a stitched newspaper page into detected remate avisos:
   DetectedAviso[]
 """
 
+from collections import defaultdict
+
 from backend.app.v2.document.stitching import StitchedPage, StitchedBlock
 from backend.app.v2.segmenter.models import (
     BoundingBox, DetectedAviso, DetectedBlock, DetectedColumn,
@@ -33,18 +35,30 @@ class NewspaperLayout:
         if not blocks:
             return []
 
-        explicit_columns = {
-            sb.column_index: block
-            for sb, block in zip(stitched_page.blocks, blocks)
-            if sb.column_index >= 0
-        }
-        if explicit_columns:
-            columns = [
-                DetectedColumn(index=index, bbox=block.bbox, blocks=[block])
-                for index, block in sorted(explicit_columns.items())
-            ]
+        # Agrupar bloques por column_index (puede haber múltiples bloques
+        # por columna — ej. 2 avisos en la misma columna del periódico).
+        col_groups: dict[int, list[DetectedBlock]] = defaultdict(list)
+        for sb, block in zip(stitched_page.blocks, blocks):
+            if sb.column_index >= 0:
+                col_groups[sb.column_index].append(block)
+
+        if col_groups:
+            columns = []
+            for index in sorted(col_groups.keys()):
+                col_blocks = col_groups[index]
+                # Bounding box que engloba todos los bloques de la columna
+                x0 = min(b.bbox.x0 for b in col_blocks)
+                y0 = min(b.bbox.y0 for b in col_blocks)
+                x1 = max(b.bbox.x1 for b in col_blocks)
+                y1 = max(b.bbox.y1 for b in col_blocks)
+                columns.append(DetectedColumn(
+                    index=index,
+                    bbox=BoundingBox(x0=x0, y0=y0, x1=x1, y1=y1),
+                    blocks=col_blocks,
+                ))
         else:
             columns = self._column_analyzer.analyze(blocks, stitched_page.width, stitched_page.height)
+
         all_avisos: list[DetectedAviso] = []
 
         for col in columns:
