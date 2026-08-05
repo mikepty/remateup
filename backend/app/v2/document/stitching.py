@@ -115,8 +115,6 @@ class StitchedPage:
 
 
 class PageStitcher:
-    DENSE_BLOCK_MIN_WORDS = 200
-    DENSE_BLOCK_WIDTH_RATIO = 0.85
     NEWSPAPER_COLUMNS = 6
     SEGMENT_GAP_MULTIPLIER = 4.0
     MIN_SEGMENT_WORDS = 10
@@ -205,29 +203,26 @@ class PageStitcher:
     def _reconstruct_dense_columns(
         self, blocks: list[StitchedBlock], page_width: int
     ) -> list[StitchedBlock]:
-        """Recupera el orden de lectura cuando las páginas densas colapsan
-        varias columnas del periódico en uno o más bloques que ocupan casi
-        todo el ancho. En ese caso el texto del bloque viene intercalado por
-        renglón, pero las coordenadas de palabra siguen utilizables, así que
-        reconstruimos las cuatro columnas y aplicamos el merge de segmentos."""
+        """Reconstruye las columnas del periódico agrupando palabras por su
+        posición X. Se activa cuando las palabras de los bloques cubren
+        múltiples bandas verticales (≥3 de 6), lo que indica que el OCR
+        intercaló texto de columnas distintas en los mismos bloques."""
         if page_width <= 0:
-            return []
-        is_dense = any(
-            len(block.words) >= self.DENSE_BLOCK_MIN_WORDS
-            and block.x1 - block.x0 >= page_width * self.DENSE_BLOCK_WIDTH_RATIO
-            for block in blocks
-        )
-        if not is_dense:
             return []
 
         words = [word for block in blocks for word in block.words if word.text.strip()]
-        if len(words) < self.DENSE_BLOCK_MIN_WORDS:
+        if len(words) < 15:
             return []
 
         min_x = min(word.x0 for word in words)
         max_x = max(word.x1 for word in words)
         content_width = max_x - min_x
         if content_width <= 0:
+            return []
+
+        # ¿Las palabras cubren suficiente ancho para ser múltiples columnas?
+        coverage = content_width / page_width
+        if coverage < 0.30:
             return []
 
         band_width = content_width / self.NEWSPAPER_COLUMNS
@@ -237,6 +232,11 @@ class PageStitcher:
             index = int((center_x - min_x) / band_width)
             index = max(0, min(self.NEWSPAPER_COLUMNS - 1, index))
             bands[index].append(word)
+
+        # ¿Hay palabras en al menos 3 bandas distintas? ( texto de columnas mixtas)
+        non_empty = sum(1 for b in bands if b)
+        if non_empty < 3:
+            return []
 
         column_blocks: list[StitchedBlock] = []
         for index, band_words in enumerate(bands):
