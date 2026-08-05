@@ -169,12 +169,12 @@ async def reintentar_documento(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    """Reintenta procesar un documento que falló."""
+    """Reintenta procesar un documento (error o completado para re-procesar)."""
     doc = db.query(Documento).get(documento_id)
     if not doc:
         raise HTTPException(404, "Documento no encontrado")
-    if doc.estado != "error":
-        raise HTTPException(400, "Solo se pueden reintentar documentos con estado 'error'")
+    if doc.estado not in ("error", "completado"):
+        raise HTTPException(400, "Solo se pueden reintentar documentos con estado 'error' o 'completado'")
     doc.estado = "recibido"
     db.commit()
     background_tasks.add_task(_procesar_en_background, doc.id)
